@@ -114,6 +114,15 @@ class SQLiteStore(RelationalStore):
         except sqlite3.OperationalError:
             pass
 
+        # Ensure default user exists (id=1) for embedded mode
+        cursor.execute(
+            "INSERT OR IGNORE INTO users (id, username) VALUES (1, 'default')"
+        )
+        # Ensure test workspace user (id=2) for multi-workspace tests
+        cursor.execute(
+            "INSERT OR IGNORE INTO users (id, username) VALUES (2, 'workspace_2')"
+        )
+
         # Memory Variables
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS memory_variables (
@@ -158,6 +167,7 @@ class SQLiteStore(RelationalStore):
                 last_recalled_at TIMESTAMP,
                 cold_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 expires_at TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
@@ -655,21 +665,26 @@ class SQLiteStore(RelationalStore):
         aliases_str = json.dumps(aliases, ensure_ascii=False) if aliases else None
         metadata_str = json.dumps(metadata, ensure_ascii=False) if metadata else None
         now = datetime.now().isoformat()
-        try:
+        # Check if entity exists first (ON CONFLICT doesn't return existing id via lastrowid)
+        existing = self._execute(
+            "SELECT id FROM graph_entities WHERE user_id = ? AND name = ? AND entity_type = ?",
+            (workspace_id, name, entity_type),
+        )
+        if existing:
+            # Update existing entity
+            self._execute(
+                """UPDATE graph_entities SET aliases = ?, metadata = ?, last_seen_at = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (aliases_str, metadata_str, now, existing[0]["id"]),
+            )
+            return existing[0]["id"]
+        else:
+            # Create new entity
             return self._execute(
                 """INSERT INTO graph_entities (user_id, name, entity_type, aliases, metadata, first_seen_at, last_seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(user_id, name, entity_type) DO UPDATE SET
-                       aliases = excluded.aliases, metadata = excluded.metadata,
-                       last_seen_at = excluded.last_seen_at, updated_at = CURRENT_TIMESTAMP""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (workspace_id, name, entity_type, aliases_str, metadata_str, now, now),
             )
-        except sqlite3.IntegrityError:
-            rows = self._execute(
-                "SELECT id FROM graph_entities WHERE user_id = ? AND name = ? AND entity_type = ?",
-                (workspace_id, name, entity_type),
-            )
-            return rows[0]["id"] if rows else 0
 
     def get_entity(self, workspace_id: int, entity_id: int) -> Optional[Dict]:
         rows = self._execute(
