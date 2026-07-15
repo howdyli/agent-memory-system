@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
+.venv/
+venv/
+ENV/
+env/
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite3
+*.sqlite
+
+# ChromaDB data
+chromadb_data/
+chroma_db/
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# IDE / OS
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+.DS_Store
+Thumbs.db
+
+# Testing / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Redis dump
+dump.rdb
+
+# Milvus data
+milvus_data/
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+
+# WorkBuddy / AI assistant artifacts
+.workbuddy/
+.qoder/
+
+# Package build artifacts
+packages/*/dist/
+packages/*/build/
+packages/*/*.egg-info/
+packages/sdk-python/src/*.egg-info/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~

@@ -1,0 +1,107 @@
+# Agent Memory System - Docker Compose (Production)
+# For production with PostgreSQL, Redis, and ChromaDB
+
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agent-memory-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://memory_user:${DB_PASSWORD}@postgres:5432/agent_memory
+      - REDIS_URL=redis://redis:6379/0
+      - CHROMA_DB_PATH=/data/chromadb
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_EXPIRATION_HOURS=24
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+    volumes:
+      - memory_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-memory-postgres
+    environment:
+      - POSTGRES_DB=agent_memory
+      - POSTGRES_USER=memory_user
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memory_user -d agent_memory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: agent-memory-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ChromaDB (Vector Database)
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: agent-memory-chromadb
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agent-memory-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - full
+
+volumes:
+  memory_data:
+  postgres_data:
+  redis_data:
+  chroma_data:
+
+networks:
+  default:
+    name: agent-memory-network

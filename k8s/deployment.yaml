@@ -1,0 +1,179 @@
+# Agent Memory System - Kubernetes Deployment
+# Usage: kubectl apply -f k8s/
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-memory-system
+
+---
+# ConfigMap for non-sensitive configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-memory-config
+  namespace: agent-memory-system
+data:
+  CHROMA_DB_PATH: "/data/chromadb"
+  JWT_EXPIRATION_HOURS: "24"
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  DATABASE_URL: "postgresql://memory_user:$(DB_PASSWORD)@postgres-svc:5432/agent_memory"
+  REDIS_URL: "redis://redis-svc:6379/0"
+
+---
+# Secret for sensitive data
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agent-memory-secrets
+  namespace: agent-memory-system
+type: Opaque
+stringData:
+  JWT_SECRET_KEY: "change-this-in-production-use-sealed-secrets"
+  DB_PASSWORD: "change-this-in-production"
+
+---
+# Backend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: agent-memory-system
+  labels:
+    app: agent-memory
+    component: backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: agent-memory
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: agent-memory
+        component: backend
+    spec:
+      containers:
+      - name: backend
+        image: agent-memory-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        envFrom:
+        - configMapRef:
+            name: agent-memory-config
+        - secretRef:
+            name: agent-memory-secrets
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: agent-memory-data
+
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-svc
+  namespace: agent-memory-system
+spec:
+  selector:
+    app: agent-memory
+    component: backend
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  type: ClusterIP
+
+---
+# Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-memory-data
+  namespace: agent-memory-system
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+  namespace: agent-memory-system
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# Ingress (optional - for external access)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agent-memory-ingress
+  namespace: agent-memory-system
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: agent-memory.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-svc
+            port:
+              number: 8000

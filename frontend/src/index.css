@@ -1,0 +1,60 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+#root { min-height: 100vh; }
+
+/* ===== Auth Pages ===== */
+.auth-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.auth-card { width: 420px; padding: 40px; background: #fff; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+.auth-card h1 { text-align: center; font-size: 28px; margin-bottom: 8px; color: #1a1a2e; }
+.auth-card .subtitle { text-align: center; color: #888; margin-bottom: 32px; }
+.auth-card .auth-footer { text-align: center; margin-top: 20px; color: #888; }
+.auth-card .auth-footer a { color: #667eea; cursor: pointer; text-decoration: none; }
+
+/* ===== Layout ===== */
+.app-layout { min-height: 100vh; }
+.app-sider { box-shadow: 2px 0 8px rgba(0,0,0,0.06); }
+.app-logo { height: 64px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; font-weight: 700; letter-spacing: 1px; background: rgba(255,255,255,0.05); }
+.app-header { background: #fff; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.app-content { padding: 16px 24px; background: #f5f5f5; height: calc(100vh - 64px); overflow-y: auto; }
+.app-content-narrow { max-width: 900px; }
+
+/* ===== Page Cards ===== */
+.page-header { margin-bottom: 24px; }
+.page-header h2 { font-size: 22px; color: #1a1a2e; margin-bottom: 4px; }
+.page-header p { color: #888; font-size: 14px; }
+
+.stat-row { display: flex; gap: 16px; margin-bottom: 24px; }
+.stat-card { flex: 1; }
+
+.section-card { margin-bottom: 20px; }
+.section-card .ant-card-head-title { font-size: 15px; font-weight: 600; }
+
+/* ===== Table Detail ===== */
+.table-detail { margin-top: 20px; }
+.table-detail .ant-table-wrapper { margin-top: 12px; }
+
+/* ===== Code Block ===== */
+.code-block { background: #1e1e2e; color: #cdd6f4; padding: 16px; border-radius: 8px; font-family: 'Fira Code', monospace; font-size: 13px; white-space: pre-wrap; overflow-x: auto; max-height: 300px; overflow-y: auto; }
+
+/* ===== Streaming Cursor Blink ===== */
+@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+/* ===== Markdown Body ===== */
+.markdown-body { font-size: 14px; word-wrap: break-word; overflow-wrap: break-word; }
+.markdown-body p { margin: 4px 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 12px 0 6px; font-weight: 600; }
+.markdown-body h1 { font-size: 1.4em; }
+.markdown-body h2 { font-size: 1.2em; }
+.markdown-body h3 { font-size: 1.1em; }
+.markdown-body img { max-width: 100%; border-radius: 6px; }
+.markdown-body strong { font-weight: 600; }
+
+/* ===== Quick Action Buttons ===== */
+.quick-action-btn { transition: filter 0.2s ease, transform 0.1s ease; }
+.quick-action-btn:hover { filter: brightness(1.1); }
+.quick-action-btn:active { filter: brightness(0.9); transform: translateY(1px); }
+
+/* 响应式：移动端按钮全宽 */
+@media (max-width: 576px) {
+  .quick-action-btn { width: 100% !important; min-width: unset !important; }
+}

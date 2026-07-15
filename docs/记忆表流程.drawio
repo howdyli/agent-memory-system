@@ -1,0 +1,214 @@
+<mxfile host="app.diagrams.net" modified="2026-06-27T13:56:00.000Z" agent="WorkBuddy" version="24.0.0">
+  <diagram name="记忆表流程" id="memory-table-flow">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- 标题 -->
+        <mxCell id="title" value="&lt;b&gt;记忆表（Memory Table）流程&lt;/b&gt;&lt;br&gt;动态表结构 · 记录 CRUD · 自然语言查询" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="10" width="600" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- 左侧：表管理流程 -->
+        <mxCell id="2" value="开始&#xa;(用户请求)" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="80" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="3" value="JWT 认证&#xa;get_current_user()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="120" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="4" value="选择操作类型" style="rhombus;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#FAC775;strokeColor=#BA7517;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="280" width="160" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- 创建表 -->
+        <mxCell id="5" value="创建记忆表&#xa;POST /{table_name}&#xa;create_memory_table()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="460" width="150" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- 添加记录 -->
+        <mxCell id="6" value="添加记录&#xa;POST /{table_name}/records&#xa;add_record()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FBEAF0;strokeColor=#D4537E;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="550" width="150" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- 查询记录 -->
+        <mxCell id="7" value="查询记录&#xa;POST /{table_name}/query&#xa;query_records()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FAC775;strokeColor=#BA7517;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="640" width="150" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- 更新记录 -->
+        <mxCell id="8" value="更新记录&#xa;PUT /{table_name}/records/{id}&#xa;update_record()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="730" width="150" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- 删除记录 -->
+        <mxCell id="9" value="删除记录&#xa;DELETE /{table_name}/records/{id}&#xa;delete_record()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FCEBEB;strokeColor=#E24B4A;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="820" width="150" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- 连接线：左侧主流程 -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1D9E75;" edge="1" parent="1" source="2" target="3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7F77DD;" edge="1" parent="1" source="3" target="4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#378ADD;dashed=1;" edge="1" parent="1" source="4" target="5">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="e3-label" value="创建" style="text;html=1;align=left;verticalAlign=middle;rounded=1;fillColor=#fff;strokeColor=none;fontSize=10;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="5" y="320" width="40" height="20" as="geometry" />
+          </mxCell>
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#D4537E;dashed=1;" edge="1" parent="1" source="4" target="6">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="e4-label" value="添加" style="text;html=1;align=left;verticalAlign=middle;rounded=1;fillColor=#fff;strokeColor=none;fontSize=10;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="5" y="350" width="40" height="20" as="geometry" />
+          </mxCell>
+        </mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#BA7517;dashed=1;" edge="1" parent="1" source="4" target="7">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="e5-label" value="查询" style="text;html=1;align=left;verticalAlign=middle;rounded=1;fillColor=#fff;strokeColor=none;fontSize=10;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="5" y="380" width="40" height="20" as="geometry" />
+          </mxCell>
+        </mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#1D9E75;dashed=1;" edge="1" parent="1" source="4" target="8">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="e6-label" value="更新" style="text;html=1;align=left;verticalAlign=middle;rounded=1;fillColor=#fff;strokeColor=none;fontSize=10;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="5" y="410" width="40" height="20" as="geometry" />
+          </mxCell>
+        </mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#E24B4A;dashed=1;" edge="1" parent="1" source="4" target="9">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="e7-label" value="删除" style="text;html=1;align=left;verticalAlign=middle;rounded=1;fillColor=#fff;strokeColor=none;fontSize=10;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="5" y="440" width="40" height="20" as="geometry" />
+          </mxCell>
+        </mxCell>
+
+        <!-- 右侧：详细流程（以添加记录为例） -->
+        <mxCell id="r1" value="添加记录详细流程" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1;fontColor=#378ADD;" vertex="1" parent="1">
+          <mxGeometry x="450" y="80" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r2" value="接收请求&#xa;AddRecordRequest" style="rectangle;whiteSpace=wrap;html=1;fillColor=#F1EFE8;strokeColor=#888780;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="130" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r3" value="验证 table_name&#xa;表是否存在" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FAC775;strokeColor=#BA7517;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="220" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r4" value="验证字段合法性&#xa;(字段名、类型)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FAC775;strokeColor=#BA7517;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="310" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r5" value="构建 INSERT SQL&#xa;参数化查询" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="400" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r6" value="执行数据库写入&#xa;SQLite / PostgreSQL" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="490" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r7" value="返回新记录 ID&#xa;JSON 响应" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="580" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r8" value="结束&#xa;(返回结果)" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#FCEBEB;strokeColor=#E24B4A;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="670" width="140" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- 右侧连接线 -->
+        <mxCell id="re1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#888780;" edge="1" parent="1" source="r2" target="r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#BA7517;" edge="1" parent="1" source="r3" target="r4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#BA7517;" edge="1" parent="1" source="r4" target="r5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#378ADD;" edge="1" parent="1" source="r5" target="r6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1D9E75;" edge="1" parent="1" source="r6" target="r7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7F77DD;" edge="1" parent="1" source="r7" target="r8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- 下方：自然语言查询流程 -->
+        <mxCell id="b1" value="自然语言查询流程（可选）" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1;fontColor=#D4537E;" vertex="1" parent="1">
+          <mxGeometry x="850" y="80" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b2" value="接收自然语言问题&#xa;NaturalLanguageQueryRequest" style="rectangle;whiteSpace=wrap;html=1;fillColor=#F1EFE8;strokeColor=#888780;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="130" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b3" value="调用 LLM 解析&#xa;natural_language_query()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FAC775;strokeColor=#BA7517;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="220" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b4" value="生成 SQL 查询&#xa;(可人工确认)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="310" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b5" value="执行 SQL 查询&#xa;SQLite / PostgreSQL" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="880" y="400" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b6" value="返回查询结果&#xa;(JSON / Markdown)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="490" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b7" value="结束&#xa;(查询结果)" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#FCEBEB;strokeColor=#E24B4A;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="880" y="580" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- 下方连接线 -->
+        <mxCell id="be1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#888780;" edge="1" parent="1" source="b2" target="b3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#BA7517;" edge="1" parent="1" source="b3" target="b4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#378ADD;" edge="1" parent="1" source="b4" target="b5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1D9E75;" edge="1" parent="1" source="b5" target="b6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7F77DD;" edge="1" parent="1" source="b6" target="b7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- 图例 -->
+        <mxCell id="legend-title" value="&lt;b&gt;图例&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="780" width="80" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="leg1" value="开始/结束" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="820" width="100" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="leg2" value="处理步骤" style="rectangle;whiteSpace=wrap;html=1;fillColor=#F1EFE8;strokeColor=#888780;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="560" y="820" width="100" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="leg3" value="判断/选择" style="rhombus;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#FAC775;strokeColor=#BA7517;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="680" y="820" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="leg4" value="数据库操作" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="780" y="820" width="100" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- 底部署注 -->
+        <mxCell id="note1" value="&lt;font color=&quot;#888780&quot;&gt;💡 记忆表支持动态字段结构，每张表可自定义字段名和类型&lt;br&gt;💡 支持批量操作（batch_add / batch_update）和天然语言 SQL 生成&lt;br&gt;💡 数据存储在 SQLite（开发）/ PostgreSQL（生产）中&lt;/font&gt;" style="text;html=1;strokeColor=#888780;fillColor=#F9F8F2;align=left;verticalAlign=top;whiteSpace=wrap;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="890" width="900" height="60" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

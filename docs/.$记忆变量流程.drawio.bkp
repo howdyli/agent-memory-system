@@ -1,0 +1,310 @@
+<mxfile host="app.diagrams.net" modified="2026-06-27T13:54:31.000Z" agent="WorkBuddy" version="24.0.0">
+  <diagram name="记忆变量流程" id="memory-variables-flow">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- 开始 -->
+        <mxCell id="2" value="开始" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="20" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- API 请求选择 -->
+        <mxCell id="3" value="选择 API 操作" style="rhombus;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#FAC775;strokeColor=#BA7517;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="120" width="160" height="100" as="geometry" />
+        </mxCell>
+        
+        <!-- 连接线：开始到选择 -->
+        <mxCell id="4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fillColor=#1D9E75;strokeColor=#1D9E75;" edge="1" parent="1" source="2" target="3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- 设置变量流程 -->
+        <mxCell id="5" value="POST /variables&#xa;(设置变量)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="280" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="6" value="JWT 认证&#xa;get_current_user()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="380" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="7" value="set_memory_variable()&#xa;写入数据库" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FBEAF0;strokeColor=#D4537E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="480" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="8" value="返回成功响应&#xa;{success: true}" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="580" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- 获取变量流程 -->
+        <mxCell id="9" value="GET /variables/{key}&#xa;(获取变量)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="280" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="10" value="JWT 认证&#xa;get_current_user()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="300" y="380" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="11" value="get_memory_variable()&#xa;读取数据库" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FBEAF0;strokeColor=#D4537E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="300" y="480" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="12" value="返回变量值&#xa;{key, value}" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="300" y="580" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- 删除变量流程 -->
+        <mxCell id="13" value="DELETE /variables/{key}&#xa;(删除变量)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="280" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="14" value="JWT 认证&#xa;get_current_user()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="380" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="15" value="delete_memory_variable()&#xa;删除数据库记录" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FBEAF0;strokeColor=#D4537E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="480" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="16" value="返回成功响应&#xa;{success: true}" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="580" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- 列出变量流程 -->
+        <mxCell id="17" value="GET /variables&#xa;(列出所有变量)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="280" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="18" value="JWT 认证&#xa;get_current_user()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="700" y="380" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="19" value="list_memory_variables()&#xa;查询数据库" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FBEAF0;strokeColor=#D4537E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="700" y="480" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="20" value="返回变量字典&#xa;{variables, count}" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="700" y="580" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- 抽取变量流程 -->
+        <mxCell id="21" value="POST /extract&#xa;(从文本抽取)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="680" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="22" value="JWT 认证&#xa;get_current_user()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="780" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="23" value="extract_variables_from_text()&#xa;调用 LLM 分析" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FBEAF0;strokeColor=#D4537E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="880" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="24" value="返回抽取结果&#xa;{extracted_variables}" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="980" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- 渲染模板流程 -->
+        <mxCell id="25" value="POST /render&#xa;(渲染模板)" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="680" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="26" value="JWT 认证&#xa;get_current_user()" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="300" y="780" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="27" value="render_template()&#xa;替换变量占位符" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FBEAF0;strokeColor=#D4537E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="300" y="880" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="28" value="返回渲染文本&#xa;{rendered}" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="300" y="980" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- 连接线 -->
+        <!-- 选择到设置变量 -->
+        <mxCell id="29" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#378ADD;" edge="1" parent="1" source="3" target="5">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="29-1" value="设置" style="text;html=1;align=center;verticalAlign=middle;rounded=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=11;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="140" y="160" width="60" height="30" as="geometry" />
+          </mxCell>
+        </mxCell>
+        
+        <!-- 设置变量流程连接 -->
+        <mxCell id="30" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#378ADD;" edge="1" parent="1" source="5" target="6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="31" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#378ADD;" edge="1" parent="1" source="6" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="32" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#378ADD;" edge="1" parent="1" source="7" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- 选择到获取变量 -->
+        <mxCell id="33" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7F77DD;" edge="1" parent="1" source="3" target="9">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="33-1" value="获取" style="text;html=1;align=center;verticalAlign=middle;rounded=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=11;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="340" y="160" width="60" height="30" as="geometry" />
+          </mxCell>
+        </mxCell>
+        
+        <!-- 获取变量流程连接 -->
+        <mxCell id="34" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7F77DD;" edge="1" parent="1" source="9" target="10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="35" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7F77DD;" edge="1" parent="1" source="10" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="36" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7F77DD;" edge="1" parent="1" source="11" target="12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- 选择到删除变量 -->
+        <mxCell id="37" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#D4537E;" edge="1" parent="1" source="3" target="13">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="37-1" value="删除" style="text;html=1;align=center;verticalAlign=middle;rounded=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=11;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="540" y="160" width="60" height="30" as="geometry" />
+          </mxCell>
+        </mxCell>
+        
+        <!-- 删除变量流程连接 -->
+        <mxCell id="38" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#D4537E;" edge="1" parent="1" source="13" target="14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="39" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#D4537E;" edge="1" parent="1" source="14" target="15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="40" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#D4537E;" edge="1" parent="1" source="15" target="16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- 选择到列出变量 -->
+        <mxCell id="41" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1D9E75;" edge="1" parent="1" source="3" target="17">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="41-1" value="列表" style="text;html=1;align=center;verticalAlign=middle;rounded=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=11;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="740" y="160" width="60" height="30" as="geometry" />
+          </mxCell>
+        </mxCell>
+        
+        <!-- 列出变量流程连接 -->
+        <mxCell id="42" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1D9E75;" edge="1" parent="1" source="17" target="18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="43" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1D9E75;" edge="1" parent="1" source="18" target="19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="44" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1D9E75;" edge="1" parent="1" source="19" target="20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- 选择到抽取变量 -->
+        <mxCell id="45" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#BA7517;" edge="1" parent="1" source="3" target="21">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="45-1" value="抽取" style="text;html=1;align=center;verticalAlign=middle;rounded=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=11;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="100" y="240" width="60" height="30" as="geometry" />
+          </mxCell>
+        </mxCell>
+        
+        <!-- 抽取变量流程连接 -->
+        <mxCell id="46" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#BA7517;" edge="1" parent="1" source="21" target="22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="47" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#BA7517;" edge="1" parent="1" source="22" target="23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="48" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#BA7517;" edge="1" parent="1" source="23" target="24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- 选择到渲染模板 -->
+        <mxCell id="49" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#0F6E56;" edge="1" parent="1" source="3" target="25">
+          <mxGeometry relative="1" as="geometry" />
+          <mxCell id="49-1" value="渲染" style="text;html=1;align=center;verticalAlign=middle;rounded=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=11;" vertex="1" connectable="0" parent="1">
+            <mxGeometry x="300" y="240" width="60" height="30" as="geometry" />
+          </mxCell>
+        </mxCell>
+        
+        <!-- 渲染模板流程连接 -->
+        <mxCell id="50" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#0F6E56;" edge="1" parent="1" source="25" target="26">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="51" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#0F6E56;" edge="1" parent="1" source="26" target="27">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="52" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#0F6E56;" edge="1" parent="1" source="27" target="28">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- 结束节点 -->
+        <mxCell id="53" value="结束" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#FCEBEB;strokeColor=#E24B4A;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="1080" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- 所有流程到结束的连接 -->
+        <mxCell id="54" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#E24B4A;dashed=1;" edge="1" parent="1" source="8" target="53">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="55" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#E24B4A;dashed=1;" edge="1" parent="1" source="12" target="53">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="56" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#E24B4A;dashed=1;" edge="1" parent="1" source="16" target="53">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="57" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#E24B4A;dashed=1;" edge="1" parent="1" source="20" target="53">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="58" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#E24B4A;dashed=1;" edge="1" parent="1" source="24" target="53">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="59" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#E24B4A;dashed=1;" edge="1" parent="1" source="28" target="53">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- 图例 -->
+        <mxCell id="60" value="图例" style="rectangle;whiteSpace=wrap;html=1;fillColor=#F1EFE8;strokeColor=#888780;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="900" y="280" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="61" value="API 端点" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E6F1FB;strokeColor=#378ADD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="900" y="340" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="62" value="认证/中间件" style="rectangle;whiteSpace=wrap;html=1;fillColor=#EEEDFE;strokeColor=#7F77DD;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="900" y="400" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="63" value="服务层处理" style="rectangle;whiteSpace=wrap;html=1;fillColor=#FBEAF0;strokeColor=#D4537E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="900" y="460" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="64" value="返回响应" style="rectangle;whiteSpace=wrap;html=1;fillColor=#E1F5EE;strokeColor=#1D9E75;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="900" y="520" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="65" value="判断节点" style="rhombus;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#FAC775;strokeColor=#BA7517;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="900" y="580" width="160" height="60" as="geometry" />
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
