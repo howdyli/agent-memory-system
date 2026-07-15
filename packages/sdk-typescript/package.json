@@ -1,0 +1,46 @@
+{
+  "name": "@agent-memory/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript client library for Agent Memory System — HttpTransport to remote Server.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "module": "dist/index.mjs",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint src/",
+    "typecheck": "tsc --noEmit",
+    "generate:client": "openapi-ts --input http://localhost:8000/openapi.json --output src/generated --client @hey-api/client"
+  },
+  "keywords": [
+    "agent-memory",
+    "memory",
+    "sdk",
+    "ai"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0",
+    "oxlint": "^0.5.0"
+  },
+  "dependencies": {
+    "@hey-api/client": "^0.4.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0"
+  }
+}

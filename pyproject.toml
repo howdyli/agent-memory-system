@@ -1,0 +1,12 @@
+# Agent Memory System — Monorepo Configuration
+
+# This file defines workspace-level settings shared across all packages.
+# Each package (core, server, sdk-python, sdk-typescript) has its own pyproject.toml / package.json.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = ["backend/", "frontend/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

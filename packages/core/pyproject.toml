@@ -1,0 +1,42 @@
+[project]
+name = "agent-memory-core"
+version = "0.1.0"
+description = "Pure Python memory logic library — no HTTP/auth dependencies. Embeddable or used via Server."
+authors = [
+    {name = "Developer"}
+]
+requires-python = ">=3.11"
+license = "MIT"
+readme = "README.md"
+
+dependencies = [
+    "pydantic (>=2.0,<3.0)",
+    "pydantic-settings (>=2.0,<3.0)",
+]
+
+[project.optional-dependencies]
+sqlite = []
+postgresql = ["psycopg2-binary (>=2.9,<3.0)"]
+mysql = ["mysqlclient (>=2.2,<3.0)"]
+chroma = ["chromadb (>=0.5,<1.0)"]
+milvus = ["pymilvus (>=3.0,<4.0)"]
+redis = ["redis (>=5.0,<9.0)", "fakeredis (>=2.26,<3.0)"]
+llm = ["openai (>=1.0)", "langchain (>=0.3,<1.0)"]
+all = [
+    "agent-memory-core[postgresql,chroma,redis,llm]",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_memory_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120

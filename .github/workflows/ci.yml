@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Core Layer ──────────────────────────────────────────────
+  core-lint-test:
+    name: Core — Lint & Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: packages/core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all]" ruff pytest pytest-asyncio
+
+      - name: Lint (ruff)
+        run: ruff check src/ tests/
+
+      - name: Test
+        run: pytest -v --tb=short
+
+  # ── Server Layer ────────────────────────────────────────────
+  server-lint-test:
+    name: Server — Lint & Test
+    runs-on: ubuntu-latest
+    needs: core-lint-test
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    defaults:
+      run:
+        working-directory: packages/server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[otel]" ruff pytest pytest-asyncio httpx
+
+      - name: Lint (ruff)
+        run: ruff check src/ tests/
+
+      - name: Test
+        run: pytest -v --tb=short
+
+  # ── Python SDK ──────────────────────────────────────────────
+  sdk-python-lint-test:
+    name: Python SDK — Lint & Test
+    runs-on: ubuntu-latest
+    needs: core-lint-test
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    defaults:
+      run:
+        working-directory: packages/sdk-python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "." ruff pytest pytest-asyncio httpx
+
+      - name: Lint (ruff)
+        run: ruff check src/ tests/
+
+      - name: Test
+        run: pytest -v --tb=short
+
+  # ── TypeScript SDK ──────────────────────────────────────────
+  sdk-typescript-lint-test:
+    name: TypeScript SDK — Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk-typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/sdk-typescript/package.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (oxlint)
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
