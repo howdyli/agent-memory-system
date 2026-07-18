@@ -26,8 +26,9 @@ from app.services.hybrid_search_service import (
     set_weights,
     rebuild_fts_index,
     get_weights,
+    analyze_search,
 )
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,13 @@ class HybridSearchRequest(BaseModel):
     beta: Optional[float] = None
     gamma: Optional[float] = None
     delta: Optional[float] = None
+    offset: int = 0
+    limit: Optional[int] = None
+
+
+class AnalyzeRequest(BaseModel):
+    query: str
+    top_k: int = 10
 
 
 class BM25SearchRequest(BaseModel):
@@ -79,7 +87,7 @@ class ConfigUpdateRequest(BaseModel):
 @router.post("/memory/hybrid-search")
 async def api_hybrid_search(
     request: HybridSearchRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     多信号混合检索。
@@ -93,13 +101,15 @@ async def api_hybrid_search(
     """
     try:
         result = hybrid_search(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             query=request.query,
             alpha=request.alpha,
             beta=request.beta,
             gamma=request.gamma,
             delta=request.delta,
             top_k=request.top_k,
+            offset=request.offset,
+            limit=request.limit,
         )
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error", "检索失败"))
@@ -111,10 +121,42 @@ async def api_hybrid_search(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/memory/hybrid-search/analyze")
+async def api_analyze_search(
+    request: AnalyzeRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    子搜索贡献度分析。
+
+    用于可解释性调试与融合权重调优，返回：
+    - 每个候选的信号分解（语义/BM25/实体/时间）
+    - 语义与 BM25 召回集合的重叠情况
+    - 各权重 ±0.1 时 top-k 排名敏感度
+
+    - **query**: 查询文本
+    - **top_k**: 分析的候选数（默认 10）
+    """
+    try:
+        result = analyze_search(
+            user_id=principal.user_id,
+            query=request.query,
+            top_k=request.top_k,
+        )
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "分析失败"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"搜索分析 API 错误: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/memory/hybrid-search/bm25")
 async def api_bm25_search(
     request: BM25SearchRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     纯 BM25 全文搜索。
@@ -128,7 +170,7 @@ async def api_bm25_search(
     try:
         result = search_bm25(
             query=request.query,
-            user_id=current_user.id,
+            user_id=principal.user_id,
             top_k=request.top_k,
         )
         if not result.get("success"):
@@ -144,7 +186,7 @@ async def api_bm25_search(
 @router.post("/memory/hybrid-search/rerank")
 async def api_rerank(
     request: RerankRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     LLM 重排序。
@@ -160,7 +202,7 @@ async def api_rerank(
         reranked = rerank_with_llm(
             query=request.query,
             fragments=request.fragments,
-            user_id=current_user.id,
+            user_id=principal.user_id,
             top_k=request.top_k,
         )
         return {"success": True, "fragments": reranked, "count": len(reranked)}
@@ -171,7 +213,7 @@ async def api_rerank(
 
 @router.get("/memory/hybrid-search/config")
 async def api_get_config(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取混合检索的当前配置，包括融合权重和检索参数。
@@ -187,7 +229,7 @@ async def api_get_config(
 @router.put("/memory/hybrid-search/config")
 async def api_update_config(
     request: ConfigUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     更新混合检索配置。
@@ -215,7 +257,7 @@ async def api_update_config(
 
 @router.post("/memory/hybrid-search/rebuild-index")
 async def api_rebuild_index(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     重建 FTS5 全文搜索索引。

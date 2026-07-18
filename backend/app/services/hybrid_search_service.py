@@ -15,8 +15,11 @@ import logging
 import json
 import re
 import math
+import hashlib
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
+
+from app.core.tracing import get_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,11 @@ HYBRID_SEARCH_CONFIG = {
     # 重排序
     "rerank_enabled": True,
     "rerank_top_k": 10,
+
+    # 查询缓存
+    "cache_enabled": True,
+    "cache_ttl": 300,      # 缓存过期时间（秒）
+    "cache_version": 1,    # 缓存版本号，配置变更时自增使旧缓存失效
 }
 
 # 融合权重键列表
@@ -104,6 +112,9 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     try:
         current = get_config()
         current.update(updates)
+        # 配置变更（权重/检索参数）时自增缓存版本号，使旧查询缓存自然失效
+        if any(k != "cache_version" for k in updates):
+            current["cache_version"] = int(current.get("cache_version", 1)) + 1
         _memory_config_cache = dict(current)
 
         redis = get_redis_client()
@@ -149,6 +160,87 @@ def set_weights(alpha: Optional[float] = None,
     if delta is not None:
         updates["delta"] = max(0.0, min(1.0, delta))
     return update_config(updates)
+
+
+# ============================================================
+# 查询缓存
+# ============================================================
+
+CACHE_KEY_PREFIX = "hybrid_search:cache"
+
+# 缓存中每条候选保留的精简字段（避免缓存体积过大）
+_CACHE_FRAG_FIELDS = (
+    "id", "content", "summary", "fragment_type", "importance",
+    "created_at", "updated_at", "_fusion_score", "_signal_breakdown",
+)
+
+
+def _cache_key(
+    user_id: int,
+    query: str,
+    weights: Dict[str, float],
+    workspace_id: Optional[int],
+    version: int,
+) -> str:
+    """生成稳定的查询缓存键。
+
+    对影响结果排序的参数（用户、查询、融合权重、工作区）做稳定序列化后
+    取 SHA256。top_k / offset / limit 不进键——缓存整份排序列表，分页从中切片。
+    """
+    payload = {
+        "user_id": user_id,
+        "query": query,
+        "weights": {k: round(float(weights.get(k, 0)), 4) for k in WEIGHT_KEYS},
+        "workspace_id": workspace_id,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f"{CACHE_KEY_PREFIX}:{version}:{digest}"
+
+
+def _slim_fragment(frag: Dict[str, Any]) -> Dict[str, Any]:
+    """裁剪候选片段，仅保留缓存所需字段。"""
+    return {k: frag.get(k) for k in _CACHE_FRAG_FIELDS if k in frag}
+
+
+def _read_cache(key: str) -> Optional[List[Dict[str, Any]]]:
+    """读取缓存的排序列表，Redis 不可用时静默返回 None。"""
+    try:
+        redis = get_redis_client()
+        if not redis:
+            return None
+        stored = redis.get(key)
+        if stored is None:
+            return None
+        if isinstance(stored, list):
+            return stored
+        return json.loads(stored)
+    except Exception as e:
+        logger.debug(f"读取查询缓存失败（忽略）: {e}")
+        return None
+
+
+def _write_cache(key: str, ranked: List[Dict[str, Any]], ttl: int) -> None:
+    """写回缓存的排序列表，Redis 不可用时静默跳过。"""
+    try:
+        redis = get_redis_client()
+        if not redis:
+            return
+        redis.set(key, [_slim_fragment(f) for f in ranked], ttl=ttl)
+    except Exception as e:
+        logger.debug(f"写入查询缓存失败（忽略）: {e}")
+
+
+def _paginate(ranked: List[Dict[str, Any]], offset: int, limit: Optional[int]) -> Tuple[List[Dict[str, Any]], bool]:
+    """在排序列表上按 offset/limit 切片，返回 (页数据, has_more)。"""
+    offset = max(0, int(offset or 0))
+    if limit is None:
+        page = ranked[offset:]
+        return page, False
+    limit = max(0, int(limit))
+    page = ranked[offset:offset + limit]
+    has_more = (offset + limit) < len(ranked)
+    return page, has_more
 
 
 # ============================================================
@@ -644,6 +736,9 @@ def hybrid_search(
     gamma: Optional[float] = None,
     delta: Optional[float] = None,
     top_k: Optional[int] = None,
+    workspace_id: Optional[int] = None,
+    offset: int = 0,
+    limit: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     多信号混合检索主入口。
@@ -673,14 +768,38 @@ def hybrid_search(
         混合检索结果
     """
     try:
+        _span = get_tracer().start_span("hybrid_search")
+        _span.set_attribute("user.id", user_id)
+        _span.set_attribute("search.query", query[:200])
+        if workspace_id:
+            _span.set_attribute("workspace.id", workspace_id)
+
         config = get_config()
         w_alpha = alpha if alpha is not None else config["alpha"]
         w_beta = beta if beta is not None else config["beta"]
         w_gamma = gamma if gamma is not None else config["gamma"]
         w_delta = delta if delta is not None else config["delta"]
         top_k_final = top_k if top_k is not None else config["top_k_final"]
+        # 分页：未显式传 limit 时，默认页大小 = top_k_final（保持向后兼容）
+        page_limit = limit if limit is not None else top_k_final
+        page_offset = max(0, int(offset or 0))
+        weights = {"alpha": w_alpha, "beta": w_beta, "gamma": w_gamma, "delta": w_delta}
 
         logger.info(f"混合检索: '{query}' 权重=({w_alpha:.2f}, {w_beta:.2f}, {w_gamma:.2f}, {w_delta:.2f})")
+
+        # ================================================================
+        # 步骤 0: 查询缓存（命中则直接分页返回）
+        # ================================================================
+        cache_enabled = bool(config.get("cache_enabled", True))
+        cache_ver = int(config.get("cache_version", 1))
+        ckey = _cache_key(user_id, query, weights, workspace_id, cache_ver) if cache_enabled else None
+        if ckey:
+            cached = _read_cache(ckey)
+            if cached is not None:
+                _span.set_attribute("search.cache_hit", True)
+                return _build_search_result(
+                    cached, query, weights, page_offset, page_limit, cache_hit=True
+                )
 
         # ================================================================
         # 步骤 1: 语义搜索 (ChromaDB)
@@ -715,14 +834,9 @@ def hybrid_search(
         # ================================================================
         all_ids = set(semantic_map.keys()) | set(bm25_map.keys())
         if not all_ids:
-            return {
-                "success": True,
-                "fragments": [],
-                "count": 0,
-                "query": query,
-                "weights_used": {"alpha": w_alpha, "beta": w_beta, "gamma": w_gamma, "delta": w_delta},
-                "signals": {"semantic": 0, "bm25": 0, "entity": 0, "recency": 0},
-            }
+            if ckey:
+                _write_cache(ckey, [], int(config.get("cache_ttl", 300)))
+            return _build_search_result([], query, weights, page_offset, page_limit, cache_hit=False)
 
         # 从 DB 获取完整信息
         db = get_db_client()
@@ -805,28 +919,157 @@ def hybrid_search(
         if not reranked:
             reranked = fused_fragments[:top_k_final]
 
-        # 统计信号贡献
-        signal_stats = {"semantic": 0, "bm25": 0, "entity": 0, "recency": 0}
-        for frag in reranked:
-            sd = frag.get("_signal_breakdown", {})
-            for k in signal_stats:
-                signal_stats[k] += sd.get(k, 0)
-        if reranked:
-            for k in signal_stats:
-                signal_stats[k] = round(signal_stats[k] / len(reranked), 4)
+        # ================================================================
+        # 步骤 7: 构建完整排序列表（rerank 头部 + 剩余融合排序尾部），用于缓存与分页
+        # ================================================================
+        reranked_ids = {f.get("id") for f in reranked}
+        tail = [f for f in fused_fragments if f.get("id") not in reranked_ids]
+        ranked_full = reranked + tail
 
-        logger.info(f"✓ 混合检索完成: {len(reranked)} 条")
-        return {
-            "success": True,
-            "fragments": reranked,
-            "count": len(reranked),
-            "query": query,
-            "weights_used": {"alpha": w_alpha, "beta": w_beta, "gamma": w_gamma, "delta": w_delta},
-            "signals": signal_stats,
-        }
+        # 写回缓存（存精简后的完整排序列表）
+        if ckey:
+            _write_cache(ckey, ranked_full, int(config.get("cache_ttl", 300)))
+
+        logger.info(f"✓ 混合检索完成: 候选池 {len(ranked_full)} 条")
+        return _build_search_result(
+            ranked_full, query, weights, page_offset, page_limit, cache_hit=False
+        )
 
     except Exception as e:
+        if '_span' in locals():
+            _span.record_exception(e)
         logger.error(f"✗ 混合检索失败: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if '_span' in locals():
+            _span.end()
+
+
+def _build_search_result(
+    ranked_full: List[Dict[str, Any]],
+    query: str,
+    weights: Dict[str, float],
+    offset: int,
+    limit: Optional[int],
+    cache_hit: bool,
+) -> Dict[str, Any]:
+    """在完整排序列表上分页并组装统一返回体。缓存命中与新算路径共用。"""
+    total = len(ranked_full)
+    page, has_more = _paginate(ranked_full, offset, limit)
+
+    # 基于当前页统计各信号平均贡献
+    signal_stats = {"semantic": 0, "bm25": 0, "entity": 0, "recency": 0}
+    for frag in page:
+        sd = frag.get("_signal_breakdown", {}) or {}
+        for k in signal_stats:
+            signal_stats[k] += sd.get(k, 0)
+    if page:
+        for k in signal_stats:
+            signal_stats[k] = round(signal_stats[k] / len(page), 4)
+
+    return {
+        "success": True,
+        "fragments": page,
+        "count": len(page),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": has_more,
+        "cache_hit": cache_hit,
+        "query": query,
+        "weights_used": dict(weights),
+        "signals": signal_stats,
+    }
+
+
+# ============================================================
+# 子搜索贡献度分析工具
+# ============================================================
+
+def analyze_search(
+    user_id: int,
+    query: str,
+    workspace_id: Optional[int] = None,
+    top_k: int = 10,
+) -> Dict[str, Any]:
+    """子搜索贡献度分析工具（可解释性与调参）。
+
+    返回:
+      - candidates: 每个候选的 _signal_breakdown 与融合分
+      - overlap: 语义 / BM25 召回集合的 semantic_only / bm25_only / both 计数
+      - weight_sensitivity: 对 alpha/beta/gamma/delta 各 ±0.1 重算 top-k，报告排名变化数
+    """
+    try:
+        config = get_config()
+
+        # 子搜索重叠分析
+        semantic_ids: set = set()
+        semantic_result = search_fragments_by_semantic(
+            user_id=user_id, query=query, top_k=config["semantic_top_k"], threshold=0.1
+        )
+        if semantic_result.get("success"):
+            semantic_ids = {f.get("id") for f in semantic_result.get("fragments", []) if f.get("id")}
+
+        bm25_ids: set = set()
+        bm25_result = search_bm25(query=query, user_id=user_id, top_k=config["bm25_top_k"])
+        if bm25_result.get("success"):
+            bm25_ids = {f.get("id") for f in bm25_result.get("fragments", []) if f.get("id")}
+
+        overlap = {
+            "semantic_total": len(semantic_ids),
+            "bm25_total": len(bm25_ids),
+            "semantic_only": len(semantic_ids - bm25_ids),
+            "bm25_only": len(bm25_ids - semantic_ids),
+            "both": len(semantic_ids & bm25_ids),
+        }
+
+        # 基线排序（取足够候选供比较）
+        base = hybrid_search(
+            user_id=user_id, query=query, workspace_id=workspace_id, limit=max(top_k, 30)
+        )
+        base_frags = base.get("fragments", []) if base.get("success") else []
+        base_top_ids = [f.get("id") for f in base_frags[:top_k]]
+
+        candidates = [
+            {
+                "id": f.get("id"),
+                "fusion_score": f.get("_fusion_score"),
+                "signal_breakdown": f.get("_signal_breakdown", {}),
+            }
+            for f in base_frags[:top_k]
+        ]
+
+        # 权重敏感度：每个权重 ±0.1，统计 top-k 排名变化数
+        base_weights = get_weights()
+        weight_sensitivity: Dict[str, Any] = {}
+        for wk in WEIGHT_KEYS:
+            entry = {}
+            for delta_w, tag in ((0.1, "plus"), (-0.1, "minus")):
+                new_val = max(0.0, min(1.0, base_weights[wk] + delta_w))
+                perturbed = hybrid_search(
+                    user_id=user_id, query=query, workspace_id=workspace_id,
+                    limit=max(top_k, 30), **{wk: new_val},
+                )
+                p_top_ids = [
+                    f.get("id") for f in perturbed.get("fragments", [])[:top_k]
+                ] if perturbed.get("success") else []
+                changed = sum(
+                    1 for i in range(min(len(base_top_ids), len(p_top_ids)))
+                    if base_top_ids[i] != p_top_ids[i]
+                ) + abs(len(base_top_ids) - len(p_top_ids))
+                entry[tag] = {"weight": round(new_val, 4), "rank_changes": changed}
+            weight_sensitivity[wk] = entry
+
+        return {
+            "success": True,
+            "query": query,
+            "weights_used": base_weights,
+            "overlap": overlap,
+            "candidates": candidates,
+            "weight_sensitivity": weight_sensitivity,
+        }
+    except Exception as e:
+        logger.error(f"✗ 搜索贡献度分析失败: {e}")
         return {"success": False, "error": str(e)}
 
 
