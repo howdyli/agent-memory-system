@@ -21,7 +21,7 @@ from app.services.auto_recall_service import (
     update_recall_config,
     get_recall_stats,
 )
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +55,11 @@ class UpdateConfigRequest(BaseModel):
 @router.post("/")
 async def auto_recall_api(
     request: AutoRecallRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """自动记忆召回（一键召回相关记忆并注入上下文）"""
     try:
-        result = auto_recall(current_user.user_id, request.query)
+        result = auto_recall(principal.user_id, request.query)
         if result["success"]:
             return result
         else:
@@ -80,11 +80,11 @@ async def auto_recall_api(
 @router.post("/summary")
 async def auto_summary_api(
     request: GenerateSummaryRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """生成对话历史自动摘要（带缓存和增量更新）"""
     try:
-        result = generate_auto_summary(current_user.user_id, request.messages)
+        result = generate_auto_summary(principal.user_id, request.messages)
         if result["success"]:
             return result
         else:
@@ -105,12 +105,12 @@ async def auto_summary_api(
 @router.post("/search")
 async def search_memories_api(
     request: SearchMemoriesRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """相关性检索（Top-K 记忆检索）"""
     try:
         result = search_relevant_memories(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             query=request.query,
             top_k=request.top_k or 5,
             threshold=request.threshold or 0.3
@@ -135,12 +135,12 @@ async def search_memories_api(
 @router.post("/inject")
 async def inject_context_api(
     request: InjectContextRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """上下文注入（将记忆注入到对话上下文）"""
     try:
         result = inject_memory_context(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             query=request.query,
             max_length=request.max_length or 2000,
             format=request.format or "structured"
@@ -164,11 +164,11 @@ async def inject_context_api(
 
 @router.get("/config")
 async def get_config_api(
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """获取自动召回配置"""
     try:
-        config = get_recall_config(current_user.user_id)
+        config = get_recall_config(principal.user_id)
         return {
             "success": True,
             "config": config
@@ -184,11 +184,11 @@ async def get_config_api(
 @router.put("/config")
 async def update_config_api(
     request: UpdateConfigRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """更新自动召回配置"""
     try:
-        result = update_recall_config(current_user.user_id, request.config)
+        result = update_recall_config(principal.user_id, request.config)
         if result["success"]:
             return result
         else:
@@ -208,11 +208,11 @@ async def update_config_api(
 
 @router.get("/stats")
 async def get_stats_api(
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """获取召回效果统计"""
     try:
-        result = get_recall_stats(current_user.user_id)
+        result = get_recall_stats(principal.user_id)
         if result["success"]:
             return result
         else:

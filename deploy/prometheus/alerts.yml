@@ -1,0 +1,122 @@
+# Agent Memory System - Prometheus 告警规则
+groups:
+  - name: agent_memory_alerts
+    interval: 30s
+    rules:
+      # ── 召回延迟告警 ──
+      - alert: HighRecallLatency
+        expr: histogram_quantile(0.99, rate(agent_memory_recall_latency_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "召回 P99 延迟超过 1 秒"
+          description: "当前 P99 延迟: {{ $value | humanizeDuration }}"
+
+      - alert: CriticalRecallLatency
+        expr: histogram_quantile(0.99, rate(agent_memory_recall_latency_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "召回 P99 延迟超过 5 秒（严重）"
+          description: "当前 P99 延迟: {{ $value | humanizeDuration }}"
+
+      # ── Webhook 投递失败率告警 ──
+      - alert: WebhookHighFailureRate
+        expr: >
+          rate(agent_memory_webhook_deliveries_total{status="failed"}[10m])
+          / rate(agent_memory_webhook_deliveries_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Webhook 投递失败率超过 10%"
+          description: "当前失败率: {{ $value | humanizePercentage }}"
+
+      - alert: WebhookDeliveryStopped
+        expr: rate(agent_memory_webhook_deliveries_total{status="success"}[30m]) == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Webhook 投递完全停止"
+
+      # ── 向量库可用性告警 ──
+      - alert: VectorBackendDown
+        expr: rate(agent_memory_vector_search_latency_seconds_count[5m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "向量搜索后端无响应"
+          description: "过去 2 分钟无向量搜索请求或全部失败"
+
+      # ── 记忆数量告警 ──
+      - alert: HighMemoryCount
+        expr: sum(agent_memory_active_count) > 100000
+        labels:
+          severity: info
+        annotations:
+          summary: "活跃记忆数量超过 10 万"
+          description: "当前数量: {{ $value }}"
+
+      - alert: VeryHighMemoryCount
+        expr: sum(agent_memory_active_count) > 500000
+        labels:
+          severity: warning
+        annotations:
+          summary: "活跃记忆数量超过 50 万（可能需要清理）"
+          description: "当前数量: {{ $value }}"
+
+      # ── HTTP 错误率告警 ──
+      - alert: HighHTTPErrorRate
+        expr: >
+          rate(http_requests_total{status=~"5.."}[5m])
+          / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 5xx 错误率超过 5%"
+          description: "当前错误率: {{ $value | humanizePercentage }}"
+
+      # ── LLM Token 消耗告警 ──
+      - alert: HighLLMTokenUsage
+        expr: rate(agent_memory_llm_tokens_total[1h]) > 100
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM Token 消耗速率异常高"
+          description: "每分钟消耗: {{ $value }} tokens"
+
+      # ── 混合检索延迟告警 ──
+      - alert: HighHybridSearchLatency
+        expr: histogram_quantile(0.95, rate(agent_memory_hybrid_search_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "混合检索 P95 延迟超过 2 秒"
+
+  # ── 基础设施告警 ──
+  - name: agent_memory_infrastructure
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: up{job="agent-memory"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Agent Memory 服务不可达"
+
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="agent-memory"} > 1e9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "服务内存使用超过 1GB"
+          description: "当前内存: {{ $value | humanize1024 }}iB"

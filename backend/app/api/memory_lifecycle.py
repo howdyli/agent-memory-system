@@ -41,7 +41,8 @@ from app.services.memory_lifecycle_service import (
     list_pending_conflicts,
     list_merge_log,
 )
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
+from app.core.rbac import Perm, require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ class DetectConflictRequest(BaseModel):
 @router.get("/memory/lifecycle/half-life/{fragment_type}")
 async def get_half_life_api(
     fragment_type: str,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """获取指定记忆类型的半衰期配置信息"""
     try:
@@ -116,11 +117,11 @@ async def get_half_life_api(
 
 @router.get("/memory/lifecycle/stats")
 async def get_stats_api(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """获取记忆生命周期统计信息"""
     try:
-        result = get_lifecycle_stats(current_user.id)
+        result = get_lifecycle_stats(principal.user_id)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result
@@ -134,11 +135,11 @@ async def get_stats_api(
 async def list_cold_api(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """列出用户的冷记忆"""
     try:
-        result = list_cold_memories(current_user.id, limit=limit, offset=offset)
+        result = list_cold_memories(principal.user_id, limit=limit, offset=offset)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result
@@ -152,11 +153,11 @@ async def list_cold_api(
 async def list_deleted_api(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """列出用户已软删除的记忆（可恢复窗口）"""
     try:
-        result = list_deleted_memories(current_user.id, limit=limit, offset=offset)
+        result = list_deleted_memories(principal.user_id, limit=limit, offset=offset)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result
@@ -173,12 +174,12 @@ async def list_deleted_api(
 @router.post("/memory/lifecycle/cold/mark")
 async def mark_cold_api(
     request: MarkColdRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """标记记忆为冷记忆"""
     try:
         result = mark_cold(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             memory_type=request.memory_type,
             memory_id=request.memory_id,
             reason=request.reason,
@@ -196,12 +197,12 @@ async def mark_cold_api(
 async def archive_memory_api(
     memory_type: str,
     memory_id: str,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """归档指定记忆"""
     try:
         result = mark_cold(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             memory_type=memory_type,
             memory_id=memory_id,
             reason="archived_by_user",
@@ -220,13 +221,13 @@ async def soft_delete_api(
     memory_type: str,
     memory_id: str,
     request: Optional[SoftDeleteRequest] = None,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_DELETE))
 ):
     """软删除记忆（可恢复）"""
     try:
         reason = request.reason if request else None
         result = soft_delete(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             memory_type=memory_type,
             memory_id=memory_id,
             reason=reason,
@@ -244,12 +245,12 @@ async def soft_delete_api(
 async def restore_memory_api(
     memory_type: str,
     memory_id: str,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """恢复软删除的记忆"""
     try:
         result = restore_memory(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             memory_type=memory_type,
             memory_id=memory_id,
         )
@@ -267,13 +268,13 @@ async def hard_delete_api(
     memory_type: str,
     memory_id: str,
     request: Optional[HardDeleteRequest] = None,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_DELETE))
 ):
     """永久删除记忆（不可恢复）"""
     try:
         reason = request.reason if request else None
         result = hard_delete(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             memory_type=memory_type,
             memory_id=memory_id,
             reason=reason,
@@ -294,13 +295,13 @@ async def hard_delete_api(
 @router.post("/memory/lifecycle/auto-archive")
 async def auto_archive_api(
     request: Optional[ArchiveRequest] = None,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """触发自动归档冷记忆"""
     try:
         cold_days = request.cold_days if request else 30
         result = auto_archive_cold_memories(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             cold_days=cold_days,
         )
         if not result.get("success"):
@@ -314,7 +315,7 @@ async def auto_archive_api(
 
 @router.post("/memory/lifecycle/run-cleanup")
 async def run_cleanup_api(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """触发过期记忆清理"""
     try:
@@ -336,11 +337,11 @@ async def run_cleanup_api(
 async def get_delete_log_api(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """获取删除操作审计日志"""
     try:
-        result = get_delete_log(current_user.id, limit=limit, offset=offset)
+        result = get_delete_log(principal.user_id, limit=limit, offset=offset)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result
@@ -354,11 +355,11 @@ async def get_delete_log_api(
 async def get_merge_log_api(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """获取合并操作审计日志"""
     try:
-        result = list_merge_log(current_user.id, limit=limit, offset=offset)
+        result = list_merge_log(principal.user_id, limit=limit, offset=offset)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result
@@ -375,12 +376,12 @@ async def get_merge_log_api(
 @router.post("/memory/lifecycle/duplicates/find")
 async def find_duplicates_api(
     request: FindDuplicatesRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """检测与指定内容重复的记忆"""
     try:
         result = find_duplicates(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             content=request.content,
             threshold=request.threshold,
             limit=request.limit,
@@ -397,12 +398,12 @@ async def find_duplicates_api(
 @router.post("/memory/lifecycle/duplicates/merge")
 async def merge_memories_api(
     request: MergeRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """合并多条重复记忆"""
     try:
         result = merge_memories(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             source_ids=request.source_ids,
             target_content=request.target_content,
             target_type=request.target_type,
@@ -419,12 +420,12 @@ async def merge_memories_api(
 @router.post("/memory/lifecycle/conflicts/detect")
 async def detect_conflicts_api(
     request: DetectConflictRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """检测记忆值冲突"""
     try:
         result = detect_conflicts(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             key=request.key,
             new_value=request.new_value,
         )
@@ -439,11 +440,11 @@ async def detect_conflicts_api(
 
 @router.get("/memory/lifecycle/conflicts")
 async def list_conflicts_api(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
 ):
     """列出待处理的冲突"""
     try:
-        result = list_pending_conflicts(current_user.id)
+        result = list_pending_conflicts(principal.user_id)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result
@@ -456,14 +457,14 @@ async def list_conflicts_api(
 @router.post("/memory/lifecycle/conflicts/resolve")
 async def resolve_conflict_api(
     request: ResolveConflictRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """解决一条已检测到的冲突（兼容旧版 body 传 conflict_id）"""
     if request.conflict_id is None:
         raise HTTPException(status_code=422, detail="缺少 conflict_id")
     try:
         result = resolve_conflict(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             conflict_id=request.conflict_id,
             resolution=request.resolution,
             merged_value=request.merged_value,
@@ -481,12 +482,12 @@ async def resolve_conflict_api(
 async def resolve_conflict_by_id_api(
     conflict_id: int,
     request: ResolveConflictRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """解决一条已检测到的冲突（RESTful 路径传 conflict_id）"""
     try:
         result = resolve_conflict(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             conflict_id=conflict_id,
             resolution=request.resolution,
             merged_value=request.merged_value,

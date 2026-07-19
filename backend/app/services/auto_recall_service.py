@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from app.core.db_client import get_db_client
 from app.core.redis_client import get_redis_client
 from app.core.chromadb_client import get_chromadb_client
+from app.core.tracing import get_tracer
 from app.services.memory_fragment_service import (
     generate_summary,
     extract_fragments,
@@ -103,7 +104,7 @@ def _get_recall_config_table():
 # Task 16: 对话历史自动摘要生成
 # ============================================================
 
-def get_recall_config(user_id: int) -> Dict[str, Any]:
+def get_recall_config(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取用户的自动召回配置
     
@@ -133,7 +134,7 @@ def get_recall_config(user_id: int) -> Dict[str, Any]:
         return DEFAULT_RECALL_CONFIG.copy()
 
 
-def update_recall_config(user_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
+def update_recall_config(user_id: int, config: Dict[str, Any], workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     更新用户的自动召回配置
     
@@ -177,7 +178,7 @@ def update_recall_config(user_id: int, config: Dict[str, Any]) -> Dict[str, Any]
         }
 
 
-def generate_auto_summary(user_id: int, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+def generate_auto_summary(user_id: int, messages: List[Dict[str, str]], workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     生成对话历史自动摘要（带增量更新和缓存）
     
@@ -339,7 +340,8 @@ def calculate_relevance(query: str, fragment: Dict[str, Any]) -> float:
 def search_relevant_memories(user_id: int,
                              query: str,
                              top_k: int = 5,
-                             threshold: float = 0.3) -> Dict[str, Any]:
+                             threshold: float = 0.3,
+                             workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     检索与查询相关的记忆（Top-K 相关性检索）
     
@@ -400,7 +402,8 @@ def search_relevant_memories(user_id: int,
 def inject_memory_context(user_id: int,
                           query: str,
                           max_length: int = 2000,
-                          format: str = "structured") -> Dict[str, Any]:
+                          format: str = "structured",
+                          workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     将召回的记忆注入到对话上下文中
     
@@ -574,7 +577,7 @@ def rank_memories_by_priority(memories: List[Dict[str, Any]],
 # 综合召回流程
 # ============================================================
 
-def auto_recall(user_id: int, query: str) -> Dict[str, Any]:
+def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     自动记忆召回完整流程
     
@@ -591,6 +594,14 @@ def auto_recall(user_id: int, query: str) -> Dict[str, Any]:
         召回结果
     """
     try:
+        # Phase 5: tracing span
+        tracer = get_tracer()
+        span = tracer.start_span("auto_recall")
+        span.set_attribute("user.id", user_id)
+        span.set_attribute("recall.query", query[:200])
+        if workspace_id:
+            span.set_attribute("workspace.id", workspace_id)
+
         config = get_recall_config(user_id)
         
         if not config.get("enabled", True):
@@ -647,18 +658,21 @@ def auto_recall(user_id: int, query: str) -> Dict[str, Any]:
         }
         
     except Exception as e:
+        span.record_exception(e)
         logger.error(f"✗ 自动召回失败: {e}")
         return {
             "success": False,
             "error": str(e)
         }
+    finally:
+        span.end()
 
 
 # ============================================================
 # Task 20: 召回效果评估
 # ============================================================
 
-def get_recall_stats(user_id: int) -> Dict[str, Any]:
+def get_recall_stats(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取召回效果统计
     

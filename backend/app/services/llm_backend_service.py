@@ -842,29 +842,47 @@ def delete_backend(user_id: int, backend_name: str) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-def llm_chat(user_id: int, messages: List[Dict[str, str]], backend_name: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+def llm_chat(user_id: int, messages: List[Dict[str, str]], backend_name: Optional[str] = None, enqueue_on_failure: bool = False, **kwargs) -> Dict[str, Any]:
     """
-    使用配置的 LLM 后端发送聊天请求（含 fallback chain）
+    使用配置的 LLM 后端发送聊天请求（含断路器 + fallback chain + 降级）
 
     Args:
         user_id: 用户 ID
         messages: 消息列表
         backend_name: 指定后端（None 使用激活的后端）
+        enqueue_on_failure: 全部后端失败时是否将任务入异步重试队列
+            （仅建议后台非交互任务开启）
         **kwargs: 额外参数（temperature, max_tokens 等）
 
     Returns:
         聊天响应
     """
+    from app.core.circuit_breaker import get_circuit_breaker_registry
+
+    registry = get_circuit_breaker_registry()
+
     result = get_llm_backend(user_id, backend_name)
     if not result["success"]:
         return result
 
     backend = result["backend"]
-    response = backend.chat(messages, **kwargs)
+    primary_name = result.get("backend_name") or "default"
+    breaker = registry.get(user_id, primary_name)
 
-    # 主后端失败时，遍历其他已注册后端尝试 fallback
-    if not response.get("success") and not backend_name:
-        logger.warning(f"⚠ 主后端失败，尝试 fallback chain (user_id={user_id})")
+    response = None
+    if breaker.allow():
+        response = backend.chat(messages, **kwargs)
+        # mock 降级响应不计入断路器成败（无外部调用）
+        if response.get("success") and not response.get("mock"):
+            breaker.record_success()
+        elif not response.get("success"):
+            breaker.record_failure()
+    else:
+        logger.warning(f"⚠ 主后端 [{primary_name}] 断路器 OPEN，跳过直接进入 fallback（user_id={user_id}）")
+
+    # 主后端失败或被熔断时，遍历其他已注册后端尝试 fallback
+    if (response is None or not response.get("success")) and not backend_name:
+        logger.warning(f"⚠ 主后端不可用，尝试 fallback chain (user_id={user_id})")
         try:
             _ensure_llm_config_table()
             db = get_db_client()
@@ -878,20 +896,48 @@ def llm_chat(user_id: int, messages: List[Dict[str, str]], backend_name: Optiona
                     b_type = r["backend_type"]
                     if b_type not in BACKEND_REGISTRY:
                         continue
+                    fb_breaker = registry.get(user_id, r["backend_name"])
+                    if not fb_breaker.allow():
+                        logger.info(f"→ fallback 后端 [{r['backend_name']}] 断路器 OPEN，跳过")
+                        continue
                     try:
                         b_config = json.loads(r["config"])
                         fallback_backend = BACKEND_REGISTRY[b_type](b_config)
                         logger.info(f"→ 尝试 fallback 后端: {r['backend_name']} ({b_type})")
                         fb_response = fallback_backend.chat(messages, **kwargs)
+                        if fb_response.get("success") and not fb_response.get("mock"):
+                            fb_breaker.record_success()
+                        elif not fb_response.get("success"):
+                            fb_breaker.record_failure()
                         if fb_response.get("success"):
                             fb_response["fallback_backend"] = r["backend_name"]
                             logger.info(f"✓ Fallback 成功: {r['backend_name']}")
                             return fb_response
                         logger.warning(f"✗ Fallback 后端 {r['backend_name']} 也失败")
                     except Exception as e:
+                        fb_breaker.record_failure()
                         logger.error(f"✗ Fallback 后端 {r['backend_name']} 异常: {e}")
         except Exception as e:
             logger.error(f"✗ Fallback chain 执行异常: {e}")
+
+    # 主后端被熔断且无可用 fallback：返回统一降级响应
+    if response is None:
+        response = {
+            "success": False,
+            "error": f"主后端 [{primary_name}] 已熔断且无可用 fallback",
+            "circuit_open": True,
+        }
+
+    # 全部失败：标记降级，并按需入异步重试队列
+    if not response.get("success"):
+        response["degraded"] = True
+        if enqueue_on_failure:
+            try:
+                from app.services.llm_retry_queue import enqueue_retry
+                enqueue_retry(user_id, messages, kwargs)
+                response["enqueued_for_retry"] = True
+            except Exception as e:
+                logger.error(f"✗ LLM 重试入队失败: {e}")
 
     return response
 

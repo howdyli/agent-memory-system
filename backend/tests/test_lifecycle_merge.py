@@ -235,7 +235,7 @@ class TestMergeMemories:
         data = resp.json()
         print(f"\n[单条合并测试] 期望错误, 结果: {data}")
         assert resp.status_code == 400, f"单条合并应返回 400, 实际: {resp.status_code}"
-        detail = resp.json().get("detail", "")
+        detail = resp.json().get("message") or resp.json().get("detail", "")
         print(f"\n[单条合并测试] 期望错误, 结果: {resp.json()}")
         assert "至少需要 2 条" in detail, f"错误信息不符: {detail}"
 
@@ -389,7 +389,7 @@ class TestConflictPersistence:
         )
         print(f"\n[不存在冲突] 期望 400: {resp.status_code} {resp.json()}")
         assert resp.status_code == 400, f"应返回 400: {resp.status_code}"
-        detail = resp.json().get("detail", "")
+        detail = resp.json().get("message") or resp.json().get("detail", "")
         assert "未找到" in detail, f"错误信息不符: {detail}"
 
 

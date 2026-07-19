@@ -8,9 +8,10 @@ import hashlib
 import secrets
 import os
 import warnings
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-from fastapi import Depends, HTTPException, status
+from typing import Optional, Dict, Any, List
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 
@@ -40,18 +41,49 @@ security = HTTPBearer()
 
 class User:
     """用户模型"""
-    def __init__(self, user_id: int, username: str, email: Optional[str] = None):
+    def __init__(self, user_id: int, username: str, email: Optional[str] = None,
+                 default_workspace_id: Optional[int] = None,
+                 roles: Optional[List[str]] = None):
         self.user_id = user_id
         self.id = user_id
         self.username = username
         self.email = email
-    
+        # Phase 2: 多租户
+        self.default_workspace_id = default_workspace_id
+        self.roles = roles or []
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "user_id": self.user_id,
             "username": self.username,
-            "email": self.email
+            "email": self.email,
+            "default_workspace_id": self.default_workspace_id,
+            "roles": self.roles,
         }
+
+    def has_role(self, role: str) -> bool:
+        return role in self.roles
+
+
+@dataclass
+class Principal:
+    """统一认证主体。同时支持 JWT 用户 与 API Key 机器身份。
+
+    - auth_method="jwt": 代表登录用户，user_id 必填，workspace_id 取 users.default_workspace_id
+    - auth_method="api_key": 代表 API Key，user_id 为 key 创建者，workspace_id 为 key 所属空间，
+      scopes 为 key 被授权的权限列表
+    """
+    user_id: int
+    workspace_id: Optional[int] = None
+    scopes: List[str] = field(default_factory=list)
+    auth_method: str = "jwt"  # "jwt" | "api_key"
+    api_key_id: Optional[int] = None  # 仅 api_key 模式有值
+
+    def has_scope(self, scope: str) -> bool:
+        """检查是否拥有指定权限（API Key 按 scopes 严格检查；JWT 用户默认全部权限）。"""
+        if self.auth_method == "jwt":
+            return True
+        return scope in self.scopes
 
 
 # 密码哈希迭代次数（从环境变量读取，默认 200000，兼容旧密码）
@@ -138,35 +170,120 @@ async def get_current_user(
 ) -> User:
     """
     获取当前用户（FastAPI 依赖注入）
-    
-    用法：
-    ```python
-    @app.get("/api/v1/memory")
-    async def get_memory(current_user: User = Depends(get_current_user)):
-        # current_user.user_id 是当前登录用户的ID
-        ...
-    ```
+
+    Phase 2 增强：从 DB 读取 default_workspace_id 和 roles，
+    填充到 User 对象，使旧调用路径也能感知 workspace 上下文。
     """
     token = credentials.credentials
     payload = decode_access_token(token)
-    
+
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"}
         )
-    
+
     user_id = payload.get("user_id")
     username = payload.get("username")
-    
+
     if user_id is None or username is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload"
         )
-    
-    return User(user_id=user_id, username=username)
+
+    # Phase 2: 从 DB 读取 workspace 上下文（延迟导入避免循环依赖）
+    default_workspace_id, roles = _load_user_workspace_context(user_id)
+
+    return User(
+        user_id=user_id,
+        username=username,
+        default_workspace_id=default_workspace_id,
+        roles=roles,
+    )
+
+
+def _load_user_workspace_context(user_id: int) -> tuple:
+    """从 DB 读取 (default_workspace_id, roles)。失败时返回 (None, [])，
+    保持旧调用路径的容错语义。"""
+    try:
+        from app.core.db_client import get_db_client
+        client = get_db_client()
+        row = client.execute(
+            "SELECT default_workspace_id FROM users WHERE id = ?",
+            (user_id,),
+        )
+        default_workspace_id = row[0]["default_workspace_id"] if row else None
+
+        roles = []
+        if default_workspace_id is not None:
+            member_rows = client.execute(
+                "SELECT role FROM workspace_members "
+                "WHERE workspace_id = ? AND user_id = ?",
+                (default_workspace_id, user_id),
+            )
+            roles = [r["role"] for r in member_rows] if member_rows else []
+        return default_workspace_id, roles
+    except Exception as e:
+        logger.warning(f"读取 workspace 上下文失败（降级为无 workspace）: {e}")
+        return None, []
+
+
+async def get_current_principal(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Principal:
+    """统一认证入口：同时支持 JWT 与 API Key。
+
+    识别规则：
+    - Authorization: Bearer <jwt>           → JWT 用户
+    - Authorization: Bearer amk_xxxxx       → API Key
+    """
+    token = credentials.credentials
+
+    # API Key 分支：前缀 amk_ 表示机器身份
+    if token.startswith("amk_"):
+        principal = await _authenticate_api_key(token)
+        if principal is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked API key",
+            )
+        return principal
+
+    # JWT 分支：现有逻辑 + 填充 workspace 上下文
+    payload = decode_access_token(token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    user_id = payload.get("user_id")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload"
+        )
+
+    default_workspace_id, _ = _load_user_workspace_context(user_id)
+    return Principal(
+        user_id=user_id,
+        workspace_id=default_workspace_id,
+        scopes=[],  # JWT 用户默认全部权限（has_scope 返回 True）
+        auth_method="jwt",
+    )
+
+
+async def _authenticate_api_key(raw_key: str) -> Optional[Principal]:
+    """校验 API Key 并返回 Principal。延迟导入 api_key_service 避免循环依赖。"""
+    try:
+        from app.services.api_key_service import validate_api_key
+        return await validate_api_key(raw_key)
+    except Exception as e:
+        logger.error(f"API Key 认证异常: {e}")
+        return None
 
 
 def get_user_from_token(token: str) -> Optional[User]:

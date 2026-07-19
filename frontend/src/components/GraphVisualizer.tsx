@@ -1,27 +1,13 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Network } from 'vis-network';
 import { DataSet } from 'vis-data';
-
-interface Entity {
-  id?: string | number;
-  entity_id?: string | number;
-  name?: string;
-  entity_type?: string;
-  [key: string]: unknown;
-}
-
-interface Relationship {
-  id?: string | number;
-  relationship_id?: string | number;
-  source_entity_id?: string;
-  source_entity_name?: string;
-  target_entity_id?: string;
-  target_entity_name?: string;
-  relation_type?: string;
-  weight?: number;
-  confidence?: number;
-  [key: string]: unknown;
-}
+import {
+  computeGraph,
+  CLUSTER_THRESHOLD,
+  type Entity,
+  type Relationship,
+  type GraphComputeResult,
+} from './graphCompute';
 
 interface Props {
   entities: Entity[];
@@ -57,23 +43,10 @@ function getEntityColor(type?: string): string {
   return ENTITY_COLORS[(type || 'other').toLowerCase()] || DEFAULT_COLOR;
 }
 
-/** 计算每个实体的连接度 */
-function computeDegreeMap(entities: Entity[], relationships: Relationship[]): Map<string, number> {
-  const map = new Map<string, number>();
-  entities.forEach(e => {
-    const id = String(e.id ?? e.entity_id ?? '');
-    map.set(id, 0);
-  });
-  relationships.forEach(r => {
-    const src = String(r.source_entity_id || '');
-    const tgt = String(r.target_entity_id || '');
-    map.set(src, (map.get(src) || 0) + 1);
-    map.set(tgt, (map.get(tgt) || 0) + 1);
-  });
-  return map;
-}
+// computeDegreeMap / CLUSTER_THRESHOLD 已抽离到 graphCompute.ts
 
-const CLUSTER_THRESHOLD = 500;
+/** 实体数量超过该阈值时，将图谱计算放到 Web Worker 后台线程 */
+const WORKER_ENTITY_THRESHOLD = 200;
 
 export default function GraphVisualizer({
   entities, relationships, width = '100%', height = 500,
@@ -85,78 +58,63 @@ export default function GraphVisualizer({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
 
-  // Determine if we should cluster
+  // 是否处于聚类展示模式（用于点击展开/统计显示）
   const shouldCluster = entities.length > CLUSTER_THRESHOLD && !expandedCluster;
 
-  // Build clustered data when needed
-  const { displayEntities, displayRelationships } = useMemo(() => {
-    // If expanded cluster is set, show only that cluster's entities
-    if (expandedCluster) {
-      const clusterType = expandedCluster.replace('cluster_', '');
-      const clusterEntities = entities.filter(
-        e => (e.entity_type || 'other').toLowerCase() === clusterType
-      );
-      const clusterIds = new Set(clusterEntities.map(e => String(e.id ?? e.entity_id ?? '')));
-      const clusterRels = relationships.filter(
-        r => clusterIds.has(String(r.source_entity_id || '')) && clusterIds.has(String(r.target_entity_id || ''))
-      );
-      return { displayEntities: clusterEntities, displayRelationships: clusterRels };
+  // 展示数据（聚类/超边/连接度）计算：大数据量走 Web Worker，小数据量走主线程
+  const [computed, setComputed] = useState<GraphComputeResult>(() =>
+    computeGraph({ entities, relationships, expandedCluster, threshold: CLUSTER_THRESHOLD })
+  );
+  const workerRef = useRef<Worker | null>(null);
+  const reqIdRef = useRef(0);
+
+  useEffect(() => {
+    const input = { entities, relationships, expandedCluster, threshold: CLUSTER_THRESHOLD };
+
+    // 小数据量或环境不支持 Worker：直接主线程计算，避免通信开销
+    if (entities.length < WORKER_ENTITY_THRESHOLD || typeof Worker === 'undefined') {
+      setComputed(computeGraph(input));
+      return;
     }
 
-    if (shouldCluster) {
-      // Group entities by type
-      const groups: Record<string, Entity[]> = {};
-      entities.forEach(e => {
-        const t = (e.entity_type || 'other').toLowerCase();
-        if (!groups[t]) groups[t] = [];
-        groups[t].push(e);
-      });
-
-      // Create super nodes
-      const superNodes: Entity[] = Object.entries(groups).map(([type, items]) => ({
-        id: `cluster_${type}`,
-        name: `${type} (${items.length})`,
-        entity_type: type,
-        _cluster: true,
-        _clusterEntities: items,
-      }));
-
-      // Build cross-group edges
-      const entityIdToType = new Map<string, string>();
-      entities.forEach(e => {
-        const id = String(e.id ?? e.entity_id ?? '');
-        entityIdToType.set(id, (e.entity_type || 'other').toLowerCase());
-      });
-
-      const crossEdges: Record<string, number> = {};
-      relationships.forEach(r => {
-        const srcType = entityIdToType.get(String(r.source_entity_id || ''));
-        const tgtType = entityIdToType.get(String(r.target_entity_id || ''));
-        if (srcType && tgtType && srcType !== tgtType) {
-          const key = [srcType, tgtType].sort().join('|');
-          crossEdges[key] = (crossEdges[key] || 0) + 1;
-        }
-      });
-
-      const superEdges: Relationship[] = Object.entries(crossEdges).map(([key, count], idx) => {
-        const [src, tgt] = key.split('|');
-        return {
-          id: `cluster_edge_${idx}`,
-          source_entity_id: `cluster_${src}`,
-          target_entity_id: `cluster_${tgt}`,
-          relation_type: `${count} 关系`,
-          confidence: Math.min(count / 10, 1),
-        };
-      });
-
-      return { displayEntities: superNodes, displayRelationships: superEdges };
+    let cancelled = false;
+    try {
+      if (!workerRef.current) {
+        workerRef.current = new Worker(new URL('./graph.worker.ts', import.meta.url), { type: 'module' });
+      }
+      const worker = workerRef.current;
+      const reqId = ++reqIdRef.current;
+      const handler = (e: MessageEvent<GraphComputeResult & { _reqId: number }>) => {
+        if (cancelled || e.data?._reqId !== reqId) return;
+        setComputed({
+          displayEntities: e.data.displayEntities,
+          displayRelationships: e.data.displayRelationships,
+          degreeMap: e.data.degreeMap,
+          shouldCluster: e.data.shouldCluster,
+        });
+        worker.removeEventListener('message', handler);
+      };
+      worker.addEventListener('message', handler);
+      worker.postMessage({ ...input, _reqId: reqId });
+      return () => {
+        cancelled = true;
+        worker.removeEventListener('message', handler);
+      };
+    } catch {
+      // Worker 不可用：回退主线程
+      setComputed(computeGraph(input));
     }
+  }, [entities, relationships, expandedCluster]);
 
-    return { displayEntities: entities, displayRelationships: relationships };
-  }, [entities, relationships, shouldCluster, expandedCluster]);
+  // 组件卸载时销毁 worker
+  useEffect(() => () => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+  }, []);
 
-  // Compute degree for node sizing
-  const degreeMap = useMemo(() => computeDegreeMap(displayEntities, displayRelationships), [displayEntities, displayRelationships]);
+  const { displayEntities, displayRelationships, degreeMap } = computed;
+
+  // Compute max degree for node sizing
   const maxDegree = useMemo(() => Math.max(1, ...degreeMap.values()), [degreeMap]);
 
   // Build node data

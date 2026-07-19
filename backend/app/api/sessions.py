@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
 from app.core.db_client import get_db_client
 from app.services.context_compressor import ConversationManager
 
@@ -40,7 +40,7 @@ class BatchDeleteRequest(BaseModel):
 # ----------------------------------------------------------
 @router.get("/sessions")
 async def list_sessions(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     page: int = Query(0, ge=0),
@@ -57,7 +57,7 @@ async def list_sessions(
     if page > 0 and page_size > 0:
         offset = (page - 1) * page_size
         limit = page_size
-    sessions = mgr.list_sessions(current_user.user_id, limit=limit, offset=offset)
+    sessions = mgr.list_sessions(principal.user_id, limit=limit, offset=offset)
     return {"success": True, "sessions": sessions, "count": len(sessions)}
 
 
@@ -66,7 +66,7 @@ async def list_sessions(
 # ----------------------------------------------------------
 @router.get("/sessions/search")
 async def search_sessions(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
     q: str = Query(..., min_length=1, max_length=200, description="搜索关键词"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
@@ -93,7 +93,7 @@ async def search_sessions(
             ORDER BY s.updated_at DESC
             LIMIT ? OFFSET ?
             """,
-            (current_user.user_id, keyword, keyword, page_size, offset),
+            (principal.user_id, keyword, keyword, page_size, offset),
         )
         session_ids = [row["session_id"] for row in (matched_rows or [])]
 
@@ -153,7 +153,7 @@ async def search_sessions(
 @router.delete("/sessions/batch")
 async def batch_delete_sessions(
     req: BatchDeleteRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """批量删除指定会话（仅删除属于当前用户的会话）"""
     db = get_db_client()
@@ -167,7 +167,7 @@ async def batch_delete_sessions(
             SELECT session_id FROM chat_sessions
             WHERE user_id = ? AND session_id IN ({placeholders})
             """,
-            (current_user.user_id, *req.session_ids),
+            (principal.user_id, *req.session_ids),
         )
         owned_ids = [r["session_id"] for r in (rows or [])]
 
@@ -330,7 +330,7 @@ def _calculate_summary_quality(summary: str) -> dict:
 @router.get("/sessions/{session_id}/summary")
 async def get_session_summary(
     session_id: str,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取会话的当前对话摘要。
@@ -348,7 +348,7 @@ async def get_session_summary(
         '''SELECT * FROM conversation_summaries
            WHERE session_id = ? AND user_id = ?
            ORDER BY id DESC LIMIT 1''',
-        (session_id, current_user.user_id)
+        (session_id, principal.user_id)
     )
 
     if not rows:
@@ -366,7 +366,7 @@ async def get_session_summary(
     # 获取历史版本数
     count_rows = db.execute(
         'SELECT COUNT(*) as cnt FROM conversation_summaries WHERE session_id = ? AND user_id = ?',
-        (session_id, current_user.user_id)
+        (session_id, principal.user_id)
     )
     history_count = count_rows[0]["cnt"] if count_rows else 0
 
@@ -390,7 +390,7 @@ async def get_session_summary(
 async def update_session_summary(
     session_id: str,
     req: UpdateSummaryRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     手动更新会话摘要。
@@ -403,7 +403,7 @@ async def update_session_summary(
     # 验证会话存在且属于当前用户
     session_rows = db.execute(
         'SELECT session_id FROM chat_sessions WHERE session_id = ? AND user_id = ?',
-        (session_id, current_user.user_id)
+        (session_id, principal.user_id)
     )
     if not session_rows:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -413,7 +413,7 @@ async def update_session_summary(
         '''SELECT from_round, to_round FROM conversation_summaries
            WHERE session_id = ? AND user_id = ?
            ORDER BY id DESC LIMIT 1''',
-        (session_id, current_user.user_id)
+        (session_id, principal.user_id)
     )
     from_round = 1
     to_round = 0
@@ -426,7 +426,7 @@ async def update_session_summary(
         '''INSERT INTO conversation_summaries
            (session_id, user_id, from_round, to_round, summary)
            VALUES (?, ?, ?, ?, ?)''',
-        (session_id, current_user.user_id, from_round, to_round, req.summary)
+        (session_id, principal.user_id, from_round, to_round, req.summary)
     )
 
     quality = _calculate_summary_quality(req.summary)
@@ -450,7 +450,7 @@ async def update_session_summary(
 @router.get("/sessions/{session_id}/summary/history")
 async def get_summary_history(
     session_id: str,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
     limit: int = Query(20, ge=1, le=100),
 ):
     """
@@ -464,7 +464,7 @@ async def get_summary_history(
            WHERE session_id = ? AND user_id = ?
            ORDER BY id DESC
            LIMIT ?''',
-        (session_id, current_user.user_id, limit)
+        (session_id, principal.user_id, limit)
     )
 
     history = []
@@ -494,7 +494,7 @@ async def get_summary_history(
 @router.post("/sessions/{session_id}/summary/regenerate")
 async def regenerate_summary(
     session_id: str,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     重新生成会话摘要（调用 LLM）。
@@ -507,7 +507,7 @@ async def regenerate_summary(
     # 验证会话存在
     session_rows = db.execute(
         'SELECT session_id FROM chat_sessions WHERE session_id = ? AND user_id = ?',
-        (session_id, current_user.user_id)
+        (session_id, principal.user_id)
     )
     if not session_rows:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -543,7 +543,7 @@ async def regenerate_summary(
         )
 
         result = llm_chat(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             messages=[{"role": "user", "content": summary_prompt}],
             temperature=0.3,
             max_tokens=500,
@@ -573,7 +573,7 @@ async def regenerate_summary(
         '''INSERT INTO conversation_summaries
            (session_id, user_id, from_round, to_round, summary)
            VALUES (?, ?, 1, ?, ?)''',
-        (session_id, current_user.user_id, total_rounds, new_summary)
+        (session_id, principal.user_id, total_rounds, new_summary)
     )
 
     quality = _calculate_summary_quality(new_summary)

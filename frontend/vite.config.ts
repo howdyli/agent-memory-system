@@ -1,9 +1,47 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.ico', 'vite.svg'],
+      manifest: {
+        name: 'Agent Memory System',
+        short_name: 'AgentMemory',
+        description: 'Agent 记忆系统',
+        theme_color: '#1677ff',
+        background_color: '#ffffff',
+        display: 'standalone',
+        start_url: '/',
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // SPA 回退到 index.html，但 /api 不参与导航回退
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/],
+        runtimeCaching: [
+          {
+            // 仅缓存 /api 的 GET 请求，且排除 SSE/流式端点，避免破坏流式传输
+            urlPattern: ({ url, request }) =>
+              url.pathname.startsWith('/api') &&
+              request.method === 'GET' &&
+              !url.pathname.includes('/stream'),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-get-cache',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+      },
+    }),
+  ],
   server: {
     port: 5173,
     proxy: {

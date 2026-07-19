@@ -17,7 +17,8 @@ from app.core.db_client import get_db_client
 
 def create_memory_table(user_id: int,
                         table_name: str,
-                        fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+                        fields: List[Dict[str, Any]],
+                        workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     创建记忆表（动态表结构）
     
@@ -120,7 +121,8 @@ def create_memory_table(user_id: int,
 def add_record(user_id: int,
                table_name: str,
                record: Dict[str, Any],
-               validate_types: bool = True) -> Dict[str, Any]:
+               validate_types: bool = True,
+               workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     向记忆表添加记录
     
@@ -234,7 +236,8 @@ def query_records(user_id: int,
                   table_name: str,
                   filters: Optional[Dict[str, Any]] = None,
                   limit: int = 100,
-                  offset: int = 0) -> Dict[str, Any]:
+                  offset: int = 0,
+                  workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     查询记忆表中的记录
     
@@ -308,7 +311,8 @@ def update_record(user_id: int,
                   table_name: str,
                   record_id: int,
                   updates: Dict[str, Any],
-                  validate_types: bool = True) -> Dict[str, Any]:
+                  validate_types: bool = True,
+                  workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     更新记忆表中的记录
     
@@ -415,7 +419,8 @@ def update_record(user_id: int,
 
 def delete_record(user_id: int,
                   table_name: str,
-                  record_id: int) -> Dict[str, Any]:
+                  record_id: int,
+                  workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     删除记忆表中的记录
     
@@ -457,7 +462,8 @@ def delete_record(user_id: int,
 
 def batch_add_records(user_id: int,
                      table_name: str,
-                     records: List[Dict[str, Any]]) -> Dict[str, Any]:
+                     records: List[Dict[str, Any]],
+                     workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     批量添加记录到记忆表
     
@@ -620,7 +626,8 @@ def batch_add_records(user_id: int,
 
 def batch_update_records(user_id: int,
                         table_name: str,
-                        updates_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+                        updates_list: List[Dict[str, Any]],
+                        workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     批量更新记忆表中的记录
     
@@ -762,7 +769,7 @@ def batch_update_records(user_id: int,
         }
 
 
-def list_tables(user_id: int) -> Dict[str, Any]:
+def list_tables(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     列出用户创建的所有记忆表
     
@@ -811,7 +818,8 @@ def list_tables(user_id: int) -> Dict[str, Any]:
 
 
 def get_table_info(user_id: int,
-                    table_name: str) -> Optional[Dict[str, Any]]:
+                    table_name: str,
+                    workspace_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     获取表的详细信息（包括字段定义）
     
@@ -848,7 +856,7 @@ def get_table_info(user_id: int,
         return None
 
 
-def drop_table(user_id: int, table_name: str) -> Dict[str, Any]:
+def drop_table(user_id: int, table_name: str, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     删除记忆表（包括表结构和所有数据）
     
@@ -902,7 +910,8 @@ def query_records_with_filters(user_id: int,
                                sort_by: Optional[str] = None,
                                sort_order: str = "ASC",
                                limit: int = 100,
-                               offset: int = 0) -> Dict[str, Any]:
+                               offset: int = 0,
+                               workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     带过滤条件的查询记忆表记录
     

@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 # 全局 Redis 客户端
 from app.core.redis_client import get_redis_client
+from app.core.tracing import get_tracer
 
 
 def _build_key(user_id: int, key: str, session_id: Optional[str] = None) -> str:
@@ -34,7 +35,8 @@ def set_memory_variable(user_id: int,
                        key: str,
                        value: Any,
                        session_id: Optional[str] = None,
-                       ttl: Optional[int] = 86400) -> bool:
+                       ttl: Optional[int] = 86400,
+                       workspace_id: Optional[int] = None) -> bool:
     """
     设置记忆变量
     
@@ -49,6 +51,10 @@ def set_memory_variable(user_id: int,
         是否设置成功
     """
     try:
+        _span = get_tracer().start_span("variable.set")
+        _span.set_attribute("user.id", user_id)
+        _span.set_attribute("variable.key", key)
+
         redis_client = get_redis_client()
         
         # 构建 Key
@@ -77,14 +83,20 @@ def set_memory_variable(user_id: int,
         return True
         
     except Exception as e:
+        if '_span' in locals():
+            _span.record_exception(e)
         logger.error(f"✗ 设置记忆变量失败：{e}")
         return False
+    finally:
+        if '_span' in locals():
+            _span.end()
 
 
 def get_memory_variable(user_id: int, 
                        key: str, 
                        session_id: Optional[str] = None,
-                       default: Any = None) -> Any:
+                       default: Any = None,
+                       workspace_id: Optional[int] = None) -> Any:
     """
     获取记忆变量
     
@@ -133,7 +145,8 @@ def get_memory_variable(user_id: int,
 
 def delete_memory_variable(user_id: int, 
                           key: str, 
-                          session_id: Optional[str] = None) -> bool:
+                          session_id: Optional[str] = None,
+                          workspace_id: Optional[int] = None) -> bool:
     """
     删除记忆变量
     
@@ -167,7 +180,8 @@ def delete_memory_variable(user_id: int,
 
 
 def list_memory_variables(user_id: int, 
-                         session_id: Optional[str] = None) -> Dict[str, Any]:
+                         session_id: Optional[str] = None,
+                         workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     列出所有记忆变量（简单 key-value 字典）
     
@@ -217,7 +231,8 @@ def list_memory_variables(user_id: int,
 
 
 def list_memory_variables_detailed(user_id: int,
-                                   session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+                                   session_id: Optional[str] = None,
+                                   workspace_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """
     列出所有记忆变量（含 TTL / expires_at 详细信息）
     
@@ -279,7 +294,8 @@ def list_memory_variables_detailed(user_id: int,
 def update_variable_ttl(user_id: int,
                         key: str,
                         ttl: Optional[int],
-                        session_id: Optional[str] = None) -> bool:
+                        session_id: Optional[str] = None,
+                        workspace_id: Optional[int] = None) -> bool:
     """
     更新变量 TTL / 续期
     
@@ -306,7 +322,8 @@ def update_variable_ttl(user_id: int,
 
 
 def clear_memory_variables(user_id: int, 
-                         session_id: Optional[str] = None) -> int:
+                         session_id: Optional[str] = None,
+                         workspace_id: Optional[int] = None) -> int:
     """
     清空所有记忆变量
     

@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from 'axios';
 import { message } from 'antd';
+import { MemoryClient } from '@agent-memory/sdk';
 
 let globalErrorHandler: ((error: unknown) => void) | null = null;
 
@@ -16,11 +17,15 @@ const apiClient: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// 请求拦截器 - 注入 JWT token
+// 请求拦截器 - 注入 JWT token + X-Workspace-Id
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  const wsId = localStorage.getItem('current_workspace_id');
+  if (wsId) {
+    config.headers['X-Workspace-Id'] = wsId;
   }
   return config;
 });
@@ -50,6 +55,36 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// ==================== SDK MemoryClient ====================
+// 通过 SDK 提供的 MemoryClient 访问记忆相关 API
+// SSE 硬编码 localhost 问题由 SDK baseUrl 配置化解决
+
+function getSdkBaseUrl(): string {
+  // 开发环境直连后端，生产环境使用相对路径
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `http://${hostname}:8000`;
+  }
+  return '';
+}
+
+export function createMemoryClient(): MemoryClient {
+  const token = localStorage.getItem('access_token') ?? undefined;
+  const wsId = localStorage.getItem('current_workspace_id') ?? undefined;
+  return new MemoryClient({
+    baseUrl: getSdkBaseUrl(),
+    token,
+    workspaceId: wsId,
+  });
+}
+
+// 全局 SDK 客户端实例（每次请求时重新读取 token/workspace）
+export const memorySdk = {
+  get client() {
+    return createMemoryClient();
+  },
+};
 
 // ==================== Auth API ====================
 export const authApi = {
@@ -185,9 +220,8 @@ export const agentApi = {
   chatStream: (message: string, systemPrompt?: string, sessionId?: string) => {
     const token = localStorage.getItem('access_token');
     // SSE 流式请求直连后端，绕过 Vite proxy（http-proxy 不支持真正的流式转发）
-    const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-      ? `http://${window.location.hostname}:8000`
-      : '';
+    // baseUrl 由 SDK 统一配置化，不再硬编码 localhost
+    const baseUrl = getSdkBaseUrl();
     return fetch(`${baseUrl}/api/v1/agent/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -233,6 +267,66 @@ export const systemApi = {
 };
 
 export default apiClient;
+
+// ==================== Workspace API ====================
+export interface Workspace {
+  id: number;
+  org_id: number;
+  name: string;
+  slug: string;
+  kind: string;
+  role?: string;
+  joined_at?: string;
+  created_at?: string;
+}
+
+export interface WorkspaceMember {
+  id: number;
+  workspace_id: number;
+  user_id: number;
+  role: string;
+  joined_at?: string;
+}
+
+export const workspaceApi = {
+  list: () => apiClient.get<Workspace[]>('/workspaces'),
+  create: (data: { name: string; slug: string; kind?: string }) =>
+    apiClient.post<Workspace>('/workspaces', data),
+  get: (id: number) => apiClient.get<Workspace>(`/workspaces/${id}`),
+  update: (id: number, data: { name?: string }) =>
+    apiClient.put<Workspace>(`/workspaces/${id}`, data),
+  addMember: (id: number, data: { user_id: number; role?: string }) =>
+    apiClient.post<WorkspaceMember>(`/workspaces/${id}/members`, data),
+  removeMember: (id: number, userId: number) =>
+    apiClient.delete(`/workspaces/${id}/members/${userId}`),
+  switchWorkspace: (workspaceId: number) =>
+    apiClient.post('/workspaces/switch', { workspace_id: workspaceId }),
+};
+
+// ==================== API Key API ====================
+export interface ApiKey {
+  id: number;
+  name: string;
+  key_prefix: string;
+  scopes: string[];
+  last_used_at?: string;
+  expires_at?: string;
+  created_at: string;
+}
+
+export interface ApiKeyCreated {
+  id: number;
+  key: string; // 仅创建时返回明文
+  name: string;
+  expires_at?: string;
+}
+
+export const apiKeyApi = {
+  list: () => apiClient.get<ApiKey[]>('/auth/api-keys'),
+  create: (data: { name: string; scopes?: string[]; expires_at?: string }) =>
+    apiClient.post<ApiKeyCreated>('/auth/api-keys', data),
+  revoke: (keyId: number) => apiClient.delete(`/auth/api-keys/${keyId}`),
+};
 
 // ==================== Memory Observability API ====================
 export const observabilityApi = {

@@ -1,0 +1,27 @@
+{
+  "name": "@agent-memory/sdk",
+  "version": "0.1.0",
+  "description": "Agent Memory System SDK for TypeScript/JavaScript",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "devDependencies": {
+    "typescript": "~5.7.0"
+  },
+  "peerDependencies": {},
+  "license": "MIT"
+}

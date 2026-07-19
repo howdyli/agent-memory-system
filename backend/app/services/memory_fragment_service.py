@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.db_client import get_db_client
 from app.core.chromadb_client import get_chromadb_client
+from app.core.tracing import get_tracer
 from app.services.memory_observability_service import record_trace_event, update_recall_metrics
 import time as _time_obs
 
@@ -313,7 +314,7 @@ def _get_prompt_store_table():
     db.execute('CREATE INDEX IF NOT EXISTS idx_prompts_user ON extraction_prompts(user_id)')
 
 
-def get_extraction_prompt(user_id: int, prompt_name: str) -> Dict[str, Any]:
+def get_extraction_prompt(user_id: int, prompt_name: str, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取抽取 Prompt 模板
     
@@ -378,7 +379,7 @@ def get_extraction_prompt(user_id: int, prompt_name: str) -> Dict[str, Any]:
         }
 
 
-def create_extraction_prompt(user_id: int, prompt_name: str, template: str) -> Dict[str, Any]:
+def create_extraction_prompt(user_id: int, prompt_name: str, template: str, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     创建或更新用户自定义抽取 Prompt 模板
     
@@ -431,7 +432,7 @@ def create_extraction_prompt(user_id: int, prompt_name: str, template: str) -> D
         }
 
 
-def list_extraction_prompts(user_id: int) -> Dict[str, Any]:
+def list_extraction_prompts(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     列出用户所有可用的抽取 Prompt 模板
     
@@ -497,7 +498,7 @@ def list_extraction_prompts(user_id: int) -> Dict[str, Any]:
         }
 
 
-def render_prompt(user_id: int, prompt_name: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+def render_prompt(user_id: int, prompt_name: str, variables: Dict[str, Any], workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     渲染 Prompt 模板
     
@@ -546,7 +547,8 @@ def create_fragment(user_id: int,
                     content: str,
                     ttl: Optional[int] = None,
                     importance_score: float = 0.5,
-                    metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                    metadata: Optional[Dict[str, Any]] = None,
+                    workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     创建记忆片段（支持 TTL）
     
@@ -562,6 +564,12 @@ def create_fragment(user_id: int,
         创建结果（包含片段 ID）
     """
     try:
+        _span = get_tracer().start_span("fragment.create")
+        _span.set_attribute("user.id", user_id)
+        _span.set_attribute("fragment.type", fragment_type)
+        if workspace_id:
+            _span.set_attribute("workspace.id", workspace_id)
+
         db = get_db_client()
         
         # 计算过期时间
@@ -631,14 +639,19 @@ def create_fragment(user_id: int,
         }
         
     except Exception as e:
+        if '_span' in locals():
+            _span.record_exception(e)
         logger.error(f"✗ 创建记忆片段失败: {e}")
         return {
             "success": False,
             "error": str(e)
         }
+    finally:
+        if '_span' in locals():
+            _span.end()
 
 
-def get_fragment(user_id: int, fragment_id: int) -> Dict[str, Any]:
+def get_fragment(user_id: int, fragment_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取记忆片段（自动检查 TTL）
     
@@ -695,7 +708,8 @@ def update_fragment(user_id: int,
                     fragment_id: int,
                     content: Optional[str] = None,
                     ttl: Optional[int] = None,
-                    importance_score: Optional[float] = None) -> Dict[str, Any]:
+                    importance_score: Optional[float] = None,
+                    workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     更新记忆片段（内容或 TTL）
     
@@ -782,7 +796,7 @@ def update_fragment(user_id: int,
         }
 
 
-def delete_fragment(user_id: int, fragment_id: int) -> Dict[str, Any]:
+def delete_fragment(user_id: int, fragment_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     删除记忆片段
     
@@ -835,7 +849,8 @@ def delete_fragment(user_id: int, fragment_id: int) -> Dict[str, Any]:
 def list_fragments(user_id: int,
                    fragment_type: Optional[str] = None,
                    limit: int = 100,
-                   offset: int = 0) -> Dict[str, Any]:
+                   offset: int = 0,
+                   workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     列出用户的记忆片段（自动清理过期片段）
     
@@ -894,7 +909,7 @@ def list_fragments(user_id: int,
         }
 
 
-def cleanup_expired_fragments(user_id: Optional[int] = None) -> Dict[str, Any]:
+def cleanup_expired_fragments(user_id: Optional[int] = None, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     清理过期的记忆片段
     
@@ -988,7 +1003,8 @@ def cleanup_expired_fragments(user_id: Optional[int] = None) -> Dict[str, Any]:
 def search_fragments_by_semantic(user_id: int,
                                  query: str,
                                  top_k: int = 5,
-                                 threshold: float = 0.3) -> Dict[str, Any]:
+                                 threshold: float = 0.3,
+                                 workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     语义搜索记忆片段（基于向量相似性）
     

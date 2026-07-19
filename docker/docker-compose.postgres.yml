@@ -1,0 +1,33 @@
+# docker-compose.postgres.yml
+# Phase 1：验证 PostgreSQL 后端可插拔的本地开发/验证配置。
+#
+# 用法：
+#   docker compose -f docker-compose.postgres.yml up -d
+#   DATABASE_URL="postgresql://am:am@localhost:5432/agent_memory" \
+#     cd backend && .venv/bin/alembic upgrade head
+#
+# 验证完毕：
+#   docker compose -f docker-compose.postgres.yml down -v
+#
+# 注意：仅用于验证，不是生产部署配置。生产环境请参考 k8s/deployment.yaml。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-memory-postgres
+    environment:
+      POSTGRES_USER: am
+      POSTGRES_PASSWORD: am
+      POSTGRES_DB: agent_memory
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U am -d agent_memory"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pg_data:

@@ -3,7 +3,7 @@
 """
 import logging
 import fastapi as _fastapi
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional, Any, Dict, List
 
@@ -31,7 +31,9 @@ from app.services.natural_language_query_service import (
     natural_language_to_sql_only,
     execute_confirmed_sql,
 )
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
+from app.core.errors import AppException, NotFoundError, ValidationError
+from app.core.rbac import Perm, require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +100,7 @@ class ExecuteSqlRequest(BaseModel):
 @router.post("/")
 async def create_table(
     request: CreateTableRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     创建记忆表（动态表结构）
@@ -112,7 +114,7 @@ async def create_table(
     """
     try:
         result = create_memory_table(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=request.table_name,
             fields=request.fields
         )
@@ -120,26 +122,20 @@ async def create_table(
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to create table")
-            )
+            raise ValidationError(result.get("error", "Failed to create table"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 创建表失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/{table_name}/records")
 async def add_record_api(
     table_name: str,
     request: AddRecordRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     向记忆表添加记录
@@ -154,7 +150,7 @@ async def add_record_api(
     """
     try:
         result = add_record(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name,
             record=request.record
         )
@@ -162,19 +158,13 @@ async def add_record_api(
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to add record")
-            )
+            raise ValidationError(result.get("error", "Failed to add record"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 添加记录失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.get("/{table_name}/records")
@@ -182,7 +172,7 @@ async def query_records_api(
     table_name: str,
     limit: Optional[int] = 100,
     offset: Optional[int] = 0,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     查询记忆表中的记录
@@ -198,7 +188,7 @@ async def query_records_api(
     """
     try:
         result = query_records(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name,
             limit=limit,
             offset=offset
@@ -207,19 +197,13 @@ async def query_records_api(
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to query records")
-            )
+            raise ValidationError(result.get("error", "Failed to query records"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 查询记录失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.put("/{table_name}/records")
@@ -227,7 +211,7 @@ async def update_record_api(
     table_name: str,
     record_id: int,
     request: UpdateRecordRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     更新记忆表中的记录
@@ -243,7 +227,7 @@ async def update_record_api(
     """
     try:
         result = update_record(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name,
             record_id=record_id,
             updates=request.updates
@@ -252,26 +236,20 @@ async def update_record_api(
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to update record")
-            )
+            raise ValidationError(result.get("error", "Failed to update record"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 更新记录失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.delete("/{table_name}/records")
 async def delete_record_api(
     table_name: str,
     record_id: int,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     删除记忆表中的记录
@@ -286,7 +264,7 @@ async def delete_record_api(
     """
     try:
         result = delete_record(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name,
             record_id=record_id
         )
@@ -294,24 +272,18 @@ async def delete_record_api(
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to delete record")
-            )
+            raise ValidationError(result.get("error", "Failed to delete record"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 删除记录失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.get("/")
 async def list_tables_api(
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     列出用户创建的所有记忆表
@@ -324,31 +296,25 @@ async def list_tables_api(
     """
     try:
         result = list_tables(
-            user_id=current_user.user_id
+            user_id=principal.user_id
         )
         
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to list tables")
-            )
+            raise ValidationError(result.get("error", "Failed to list tables"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 列出表失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/parse")
 async def parse_natural_language(
     request: ParseNaturalLanguageRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     从自然语言输入中解析表结构和数据
@@ -377,17 +343,14 @@ async def parse_natural_language(
             
     except Exception as e:
         logger.error(f"✗ 解析自然语言失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/{table_name}/records/batch")
 async def batch_add_records_api(
     table_name: str,
     request: BatchAddRecordsRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     批量添加记录到记忆表
@@ -402,7 +365,7 @@ async def batch_add_records_api(
     """
     try:
         result = batch_add_records(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name,
             records=request.records
         )
@@ -410,26 +373,20 @@ async def batch_add_records_api(
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to batch add records")
-            )
+            raise ValidationError(result.get("error", "Failed to batch add records"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 批量添加记录失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.put("/{table_name}/records/batch")
 async def batch_update_records_api(
     table_name: str,
     request: BatchUpdateRecordsRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     批量更新记忆表中的记录
@@ -444,7 +401,7 @@ async def batch_update_records_api(
     """
     try:
         result = batch_update_records(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name,
             updates_list=request.updates_list
         )
@@ -452,25 +409,19 @@ async def batch_update_records_api(
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to batch update records")
-            )
+            raise ValidationError(result.get("error", "Failed to batch update records"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 批量更新记录失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.delete("/{table_name}")
 async def drop_table_api(
     table_name: str,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     删除整个记忆表（包括表结构和所有数据）
@@ -484,32 +435,26 @@ async def drop_table_api(
     """
     try:
         result = drop_table(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name
         )
         
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to drop table")
-            )
+            raise ValidationError(result.get("error", "Failed to drop table"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 删除表失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.get("/{table_name}/info")
 async def get_table_info_api(
     table_name: str,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     获取记忆表的详细信息（包括表结构、字段定义等）
@@ -523,7 +468,7 @@ async def get_table_info_api(
     """
     try:
         table_info = get_table_info(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name
         )
         
@@ -533,26 +478,20 @@ async def get_table_info_api(
                 "table_info": table_info
             }
         else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Table '{table_name}' not found"
-            )
+            raise NotFoundError(f"Table '{table_name}' not found")
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 获取表信息失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/{table_name}/query")
 async def query_with_filters_api(
     table_name: str,
     request: QueryWithFiltersRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     带过滤条件的查询记忆表记录
@@ -569,7 +508,7 @@ async def query_with_filters_api(
     """
     try:
         result = query_records_with_filters(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name,
             filters=request.filters,
             sort_by=request.sort_by,
@@ -581,25 +520,19 @@ async def query_with_filters_api(
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to query records")
-            )
+            raise ValidationError(result.get("error", "Failed to query records"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 过滤查询失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/nl-query")
 async def natural_language_query_api(
     request: NaturalLanguageQueryRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     自然语言查询（智能问数）
@@ -615,7 +548,7 @@ async def natural_language_query_api(
     """
     try:
         result = natural_language_query(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             question=request.question
         )
         
@@ -623,26 +556,20 @@ async def natural_language_query_api(
             return result
         else:
             # 查询失败不返回 500，而是返回 400 和错误信息
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to process natural language query")
-            )
+            raise ValidationError(result.get("error", "Failed to process natural language query"))
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 自然语言查询失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/{table_name}/nl-to-sql")
 async def natural_language_to_sql_api(
     table_name: str,
     request: NaturalLanguageToSqlRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     自然语言转 SQL（仅生成，不执行）
@@ -660,43 +587,34 @@ async def natural_language_to_sql_api(
     try:
         # 校验表存在性，同时让错误提示更清晰
         table_info = get_table_info(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name
         )
         if not table_info:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Table '{table_name}' not found"
-            )
+            raise NotFoundError(f"Table '{table_name}' not found")
 
         result = natural_language_to_sql_only(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             question=request.question
         )
 
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to generate SQL")
-            )
+            raise ValidationError(result.get("error", "Failed to generate SQL"))
 
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 自然语言转 SQL 失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/{table_name}/execute-sql")
 async def execute_sql_api(
     table_name: str,
     request: ExecuteSqlRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     执行已确认的 SQL（仍需再次安全校验）
@@ -714,36 +632,27 @@ async def execute_sql_api(
     try:
         # 校验表存在性
         table_info = get_table_info(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             table_name=table_name
         )
         if not table_info:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Table '{table_name}' not found"
-            )
+            raise NotFoundError(f"Table '{table_name}' not found")
 
         result = execute_confirmed_sql(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             sql=request.sql
         )
 
         if result["success"]:
             return result
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to execute SQL")
-            )
+            raise ValidationError(result.get("error", "Failed to execute SQL"))
 
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 执行确认 SQL 失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 # 测试函数

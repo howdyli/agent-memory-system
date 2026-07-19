@@ -28,7 +28,7 @@ from app.services.memory_observability_service import (
     get_quality_report,
 )
 from app.services.performance_service import get_performance_service
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class BatchEvalRequest(BaseModel):
 
 @router.get("/memory/observability/dashboard")
 async def api_dashboard(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取观测仪表盘聚合指标。
@@ -69,7 +69,7 @@ async def api_dashboard(
     检索延迟 P50/P99、LLM Token 消耗等关键指标。
     """
     try:
-        result = get_dashboard_stats(user_id=current_user.id)
+        result = get_dashboard_stats(user_id=principal.user_id)
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error", "获取指标失败"))
         return result
@@ -83,7 +83,7 @@ async def api_dashboard(
 @router.get("/memory/observability/metrics-history")
 async def api_metrics_history(
     days: int = Query(30, description="查询最近 N 天"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取指标历史时间序列。
@@ -91,7 +91,7 @@ async def api_metrics_history(
     - **days**: 查询最近 N 天（默认 30）
     """
     try:
-        result = get_metrics_history(user_id=current_user.id, days=days)
+        result = get_metrics_history(user_id=principal.user_id, days=days)
         return result
     except Exception as e:
         logger.error(f"指标历史 API 错误: {e}")
@@ -100,7 +100,7 @@ async def api_metrics_history(
 
 @router.post("/memory/observability/snapshot")
 async def api_snapshot(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     手动执行指标快照。
@@ -109,7 +109,7 @@ async def api_snapshot(
     用于生成时间序列趋势图。
     """
     try:
-        result = snapshot_metrics(user_id=current_user.id)
+        result = snapshot_metrics(user_id=principal.user_id)
         return result
     except Exception as e:
         logger.error(f"快照 API 错误: {e}")
@@ -120,7 +120,7 @@ async def api_snapshot(
 async def api_memory_trace(
     memory_id: str,
     memory_type: Optional[str] = Query(None, description="记忆类型 (fragment/variable/table)"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取某条记忆的完整生命周期追踪。
@@ -146,7 +146,7 @@ async def api_trace_events(
     event_source: Optional[str] = Query(None, description="事件来源过滤"),
     days: int = Query(7, description="查询最近 N 天"),
     limit: int = Query(100, description="最大返回条数"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取追踪事件列表。
@@ -158,7 +158,7 @@ async def api_trace_events(
     """
     try:
         result = get_trace_events(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             event_type=event_type,
             event_source=event_source,
             days=days,
@@ -174,7 +174,7 @@ async def api_trace_events(
 async def api_extraction_triggers(
     limit: int = Query(50, description="最大返回条数"),
     days: int = Query(30, description="查询最近 N 天"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取记忆抽取触发记录。
@@ -183,7 +183,7 @@ async def api_extraction_triggers(
     """
     try:
         result = get_extraction_triggers(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             limit=limit,
             days=days,
         )
@@ -196,7 +196,7 @@ async def api_extraction_triggers(
 @router.post("/memory/observability/quality/evaluate")
 async def api_evaluate_accuracy(
     request: AccuracyEvalRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     LLM 自动评估记忆片段准确率。
@@ -207,7 +207,7 @@ async def api_evaluate_accuracy(
     """
     try:
         result = evaluate_memory_accuracy(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             memory_id=request.memory_id,
             conversation_text=request.conversation_text,
             memory_type=request.memory_type,
@@ -225,7 +225,7 @@ async def api_evaluate_accuracy(
 @router.post("/memory/observability/quality/relevance")
 async def api_evaluate_relevance(
     request: RelevanceEvalRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     评估召回片段与查询的相关性。
@@ -235,7 +235,7 @@ async def api_evaluate_relevance(
     """
     try:
         result = evaluate_recall_relevance(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             query=request.query,
             fragments=request.fragments,
         )
@@ -248,7 +248,7 @@ async def api_evaluate_relevance(
 @router.post("/memory/observability/quality/batch-evaluate")
 async def api_batch_evaluate(
     request: BatchEvalRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     批量评估最近创建的记忆片段质量。
@@ -257,7 +257,7 @@ async def api_batch_evaluate(
     """
     try:
         result = batch_evaluate_quality(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             limit=request.limit,
         )
         return result
@@ -269,7 +269,7 @@ async def api_batch_evaluate(
 @router.get("/memory/observability/quality-report")
 async def api_quality_report(
     days: int = Query(30, description="查询最近 N 天"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取质量评估聚合报告。
@@ -279,7 +279,7 @@ async def api_quality_report(
     """
     try:
         result = get_quality_report(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             days=days,
         )
         return result
@@ -295,7 +295,7 @@ async def api_quality_report(
 @router.get("/memory/observability/performance/latency")
 async def api_performance_latency(
     hours: int = Query(24, description="查询最近 N 小时"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取API延迟统计（p50/p95/p99）。
@@ -303,7 +303,7 @@ async def api_performance_latency(
     try:
         svc = get_performance_service()
         result = await svc.get_api_latency_stats(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             hours=hours,
         )
         if not result.get("success"):
@@ -319,7 +319,7 @@ async def api_performance_latency(
 @router.get("/memory/observability/performance/llm-costs")
 async def api_performance_llm_costs(
     hours: int = Query(24, description="查询最近 N 小时"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取LLM调用成本统计。
@@ -327,7 +327,7 @@ async def api_performance_llm_costs(
     try:
         svc = get_performance_service()
         result = await svc.get_llm_cost_stats(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             hours=hours,
         )
         if not result.get("success"):
@@ -343,7 +343,7 @@ async def api_performance_llm_costs(
 @router.get("/memory/observability/performance/cache")
 async def api_performance_cache(
     hours: int = Query(24, description="查询最近 N 小时"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取缓存命中率统计。
@@ -351,7 +351,7 @@ async def api_performance_cache(
     try:
         svc = get_performance_service()
         result = await svc.get_cache_hit_rate(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             hours=hours,
         )
         if not result.get("success"):
@@ -367,7 +367,7 @@ async def api_performance_cache(
 @router.get("/memory/observability/performance/errors")
 async def api_performance_errors(
     hours: int = Query(24, description="查询最近 N 小时"),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取错误率统计与最近错误列表。
@@ -375,7 +375,7 @@ async def api_performance_errors(
     try:
         svc = get_performance_service()
         result = await svc.get_error_rate(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             hours=hours,
         )
         if not result.get("success"):

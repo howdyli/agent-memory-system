@@ -23,6 +23,7 @@ const Observability = lazy(() => import('./pages/Observability'));
 const Lifecycle = lazy(() => import('./pages/Lifecycle'));
 const GraphMemory = lazy(() => import('./pages/GraphMemory'));
 const HybridSearch = lazy(() => import('./pages/HybridSearch'));
+const WorkspaceSettings = lazy(() => import('./pages/WorkspaceSettings'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +66,7 @@ function App() {
                     <Route path="/graph-memory" element={<GraphMemory />} />
                     <Route path="/hybrid-search" element={<HybridSearch />} />
                     <Route path="/system" element={<System />} />
+                    <Route path="/workspace/settings" element={<WorkspaceSettings />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

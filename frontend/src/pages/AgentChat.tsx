@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, Input, Button, Tag, Space, Spin, Divider, Tooltip, Collapse } from 'antd';
 import { SendOutlined, RobotOutlined, UserOutlined, ToolOutlined, DatabaseOutlined } from '@ant-design/icons';
 import { agentApi, sessionsApi } from '../services/api';
@@ -86,16 +87,28 @@ export default function AgentChatPage() {
   }, [queryClient]);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const prependingRef = useRef(false);
+
+  const rowVirtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => 120,
+    overscan: 8,
+  });
 
   const scrollToBottom = useCallback(() => {
-    if (listRef.current) {
-      requestAnimationFrame(() => {
-        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-      });
-    }
-  }, []);
+    if (messages.length === 0) return;
+    requestAnimationFrame(() => {
+      rowVirtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
+    });
+  }, [messages.length, rowVirtualizer]);
 
   useEffect(() => {
+    // 加载更早消息（前置插入）时不自动滚到底部
+    if (prependingRef.current) {
+      prependingRef.current = false;
+      return;
+    }
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
@@ -129,18 +142,15 @@ export default function AgentChatPage() {
         content: m.content || '',
         toolCalls: m.tool_calls ? JSON.parse(m.tool_calls) : undefined,
       }));
-      // 旧消息插入到顶部
+      // 旧消息前置插入；标记 prepending，避免自动滚到底部
+      prependingRef.current = true;
       setMessages(prev => [...olderMsgs, ...prev]);
       setMsgOffset(prev => prev + PAGE_SIZE);
       setMsgTotal(res.data.total || msgTotal);
-      // 保持滚动位置
-      if (listRef.current) {
-        const prevHeight = listRef.current.scrollHeight;
+      // 保持滚动位置：之前的顶部消息现在位于索引 olderMsgs.length
+      if (olderMsgs.length > 0) {
         requestAnimationFrame(() => {
-          if (listRef.current) {
-            const newHeight = listRef.current.scrollHeight;
-            listRef.current.scrollTop = newHeight - prevHeight;
-          }
+          rowVirtualizer.scrollToIndex(olderMsgs.length, { align: 'start' });
         });
       }
     } catch {
@@ -422,31 +432,45 @@ export default function AgentChatPage() {
         </Card>
       )}
 
+      {/* 分页：加载更早消息（置于虚拟滚动区上方，避免影响虚拟测量） */}
+      {sessionId && msgOffset < msgTotal && (
+        <div style={{ textAlign: 'center', padding: '8px 0', flexShrink: 0 }}>
+          <Button
+            size="small"
+            type="link"
+            loading={loadingMore}
+            onClick={handleLoadMore}
+          >
+            加载更早的消息 ({msgOffset}/{msgTotal})
+          </Button>
+        </div>
+      )}
+      {sessionId && msgTotal > 0 && msgOffset >= msgTotal && (
+        <div style={{ textAlign: 'center', padding: '6px 0', color: '#ccc', fontSize: 12, flexShrink: 0 }}>
+          已加载全部 {msgTotal} 条消息
+        </div>
+      )}
       <div
         ref={listRef}
         style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 24px', minHeight: 0 }}
       >
-        {/* 分页：加载更多历史消息 */}
-        {sessionId && msgOffset < msgTotal && (
-          <div style={{ textAlign: 'center', padding: '12px 0' }}>
-            <Button
-              size="small"
-              type="link"
-              loading={loadingMore}
-              onClick={handleLoadMore}
-            >
-              加载更早的消息 ({msgOffset}/{msgTotal})
-            </Button>
-          </div>
-        )}
-        {sessionId && msgTotal > 0 && msgOffset >= msgTotal && (
-          <div style={{ textAlign: 'center', padding: '8px 0', color: '#ccc', fontSize: 12 }}>
-            已加载全部 {msgTotal} 条消息
-          </div>
-        )}
-        {messages.map((msg, idx) => (
+        <div style={{ height: rowVirtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const msg = messages[virtualRow.index];
+            return (
             <div
-              key={idx}
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={rowVirtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+            <div
               style={{
                 display: 'flex',
                 justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
@@ -597,7 +621,10 @@ export default function AgentChatPage() {
                 )}
               </Card>
             </div>
-        ))}
+            </div>
+            );
+          })}
+        </div>
       </div>
 
       <div style={{ padding: '16px 24px', flexShrink: 0 }}>

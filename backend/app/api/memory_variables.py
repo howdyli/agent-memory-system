@@ -3,7 +3,7 @@
 """
 import logging
 import fastapi as _fastapi
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
 
@@ -23,7 +23,9 @@ from app.services.memory_variable_service import (
     extract_variables_from_text,
     render_template
 )
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
+from app.core.errors import AppException, NotFoundError
+from app.core.rbac import Perm, require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -66,21 +68,13 @@ class UpdateTtlRequest(BaseModel):
 @router.post("/variables")
 async def set_variable(
     request: SetVariableRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
-    """
-    设置记忆变量
-    
-    Args:
-        request: 设置变量请求（key, value, session_id, ttl）
-        current_user: 当前登录用户
-        
-    Returns:
-        设置结果
-    """
+    """设置记忆变量"""
     try:
         result = set_memory_variable(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id,
             key=request.key,
             value=request.value,
             session_id=request.session_id,
@@ -93,85 +87,55 @@ async def set_variable(
                 "message": f"Variable '{request.key}' set successfully"
             }
         else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to set variable"
-            )
+            raise AppException("Failed to set variable")
             
     except Exception as e:
         logger.error(f"✗ 设置变量失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.get("/variables/{key}")
 async def get_variable(
     key: str,
     session_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
-    """
-    获取记忆变量
-    
-    Args:
-        key: 变量名
-        session_id: 会话ID（可选）
-        current_user: 当前登录用户
-        
-    Returns:
-        变量值
-    """
+    """获取记忆变量"""
     try:
         value = get_memory_variable(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id,
             key=key,
             session_id=session_id,
             default=None
         )
         
         if value is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Variable '{key}' not found"
-            )
+            raise NotFoundError(f"Variable '{key}' not found")
         
         return {
             "key": key,
             "value": value
         }
         
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 获取变量失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.delete("/variables/{key}")
 async def delete_variable(
     key: str,
     session_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_DELETE))
 ):
-    """
-    删除记忆变量
-    
-    Args:
-        key: 变量名
-        session_id: 会话ID（可选）
-        current_user: 当前登录用户
-        
-    Returns:
-        删除结果
-    """
+    """删除记忆变量"""
     try:
         result = delete_memory_variable(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id,
             key=key,
             session_id=session_id
         )
@@ -182,42 +146,27 @@ async def delete_variable(
                 "message": f"Variable '{key}' deleted successfully"
             }
         else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Variable '{key}' not found"
-            )
+            raise NotFoundError(f"Variable '{key}' not found")
             
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 删除变量失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.get("/variables")
 async def list_variables(
     session_id: Optional[str] = None,
     detailed: bool = False,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
-    """
-    列出所有记忆变量
-    
-    Args:
-        session_id: 会话ID（可选）
-        detailed: 是否返回含 TTL 等详细信息的数组格式
-        current_user: 当前登录用户
-        
-    Returns:
-        所有变量
-    """
+    """列出所有记忆变量"""
     try:
         if detailed:
             variables = list_memory_variables_detailed(
-                user_id=current_user.user_id,
+                user_id=principal.user_id,
+                workspace_id=principal.workspace_id,
                 session_id=session_id
             )
             return {
@@ -226,7 +175,8 @@ async def list_variables(
             }
         else:
             variables = list_memory_variables(
-                user_id=current_user.user_id,
+                user_id=principal.user_id,
+                workspace_id=principal.workspace_id,
                 session_id=session_id
             )
             return {
@@ -236,29 +186,20 @@ async def list_variables(
         
     except Exception as e:
         logger.error(f"✗ 列出变量失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.put("/variables/{key}/ttl")
 async def update_ttl(
     key: str,
     request: UpdateTtlRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
-    """
-    更新变量 TTL / 续期
-    
-    Args:
-        key: 变量名
-        request: { ttl: int | null } — 秒数，0 表示永久
-        current_user: 当前登录用户
-    """
+    """更新变量 TTL / 续期"""
     try:
         result = update_variable_ttl(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id,
             key=key,
             ttl=request.ttl
         )
@@ -269,38 +210,24 @@ async def update_ttl(
                 "message": f"Variable '{key}' TTL updated successfully"
             }
         else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Variable '{key}' not found"
-            )
-    except HTTPException:
+            raise NotFoundError(f"Variable '{key}' not found")
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"✗ 更新变量 TTL 失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.delete("/variables")
 async def clear_variables(
     session_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_DELETE))
 ):
-    """
-    清空所有记忆变量
-    
-    Args:
-        session_id: 会话ID（可选，如果提供则只清空会话级别变量）
-        current_user: 当前登录用户
-        
-    Returns:
-        清空结果
-    """
+    """清空所有记忆变量"""
     try:
         count = clear_memory_variables(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id,
             session_id=session_id
         )
         
@@ -311,27 +238,15 @@ async def clear_variables(
         
     except Exception as e:
         logger.error(f"✗ 清空变量失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/extract")
 async def extract_variables(
     request: ExtractVariablesRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
-    """
-    从文本中抽取变量
-    
-    Args:
-        request: 抽取变量请求（text）
-        current_user: 当前登录用户
-        
-    Returns:
-        抽取到的变量字典
-    """
+    """从文本中抽取变量"""
     try:
         variables = extract_variables_from_text(request.text)
         
@@ -343,27 +258,15 @@ async def extract_variables(
         
     except Exception as e:
         logger.error(f"✗ 抽取变量失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 @router.post("/render")
 async def render_template_api(
     request: RenderTemplateRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
-    """
-    渲染模板（将 {variable_name} 替换为变量值）
-    
-    Args:
-        request: 渲染模板请求（template, variables）
-        current_user: 当前登录用户
-        
-    Returns:
-        渲染后的字符串
-    """
+    """渲染模板（将 {variable_name} 替换为变量值）"""
     try:
         rendered = render_template(request.template, request.variables)
         
@@ -375,10 +278,7 @@ async def render_template_api(
         
     except Exception as e:
         logger.error(f"✗ 渲染模板失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise AppException(str(e))
 
 
 # 测试函数

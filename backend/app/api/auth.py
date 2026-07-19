@@ -1,11 +1,14 @@
 """
 认证相关 API 路由
+
+Stability: STABLE — 向后兼容，破坏性变更仅随主版本号发布。
 """
 import logging
 import fastapi as _fastapi
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
+from datetime import datetime
 
 # 导入认证模块
 import sys
@@ -17,9 +20,14 @@ from app.core.auth import (
     hash_password, 
     verify_password,
     create_access_token,
-    get_current_user
+    get_current_user,
+    Principal,
+    get_current_principal,
 )
 from app.core.db_client import get_db_client
+from app.core.errors import AppException, AuthError, ConflictError, NotFoundError, ValidationError
+from app.core.rbac import Perm, require_permission
+from app.services import api_key_service
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +74,9 @@ async def register(user_data: UserRegister):
     )
     
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username or email already registered"
+        raise ConflictError(
+            "Username or email already registered",
+            status_code=400,
         )
     
     # 哈希密码
@@ -84,10 +92,7 @@ async def register(user_data: UserRegister):
             user_id = cursor.lastrowid
     except Exception as e:
         logger.error(f"✗ 用户注册失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Registration failed"
-        )
+        raise AppException("Registration failed")
     
     # 创建 Token
     access_token = create_access_token(user_id, user_data.username)
@@ -120,19 +125,13 @@ async def login(login_data: UserLogin):
     )
     
     if not result:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password"
-        )
+        raise AuthError("Incorrect username or password")
     
     user_data = dict(result[0])
     
     # 验证密码
     if not verify_password(login_data.password, user_data['password_hash']):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password"
-        )
+        raise AuthError("Incorrect username or password")
     
     # 创建 Token
     access_token = create_access_token(user_data['id'], user_data['username'])
@@ -172,6 +171,75 @@ async def logout():
     生产环境可使用 Token 黑名单机制
     """
     return {"message": "Logout successful. Please delete your token on client side."}
+
+
+# ============================================================
+# API Key 管理（Phase 2）
+# ============================================================
+class ApiKeyCreateRequest(BaseModel):
+    name: str
+    scopes: Optional[List[str]] = None
+    expires_at: Optional[datetime] = None
+
+
+class ApiKeyOut(BaseModel):
+    id: int
+    name: str
+    workspace_id: int
+    scopes: List[str]
+    last_used_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class ApiKeyCreatedOut(BaseModel):
+    id: int
+    key: str  # 明文 key，仅创建时返回一次
+    name: str
+    workspace_id: int
+    scopes: List[str]
+    expires_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+@router.get("/api-keys", response_model=List[ApiKeyOut])
+async def list_api_keys(
+    principal: Principal = Depends(require_permission(Perm.API_KEY_MANAGE)),
+):
+    """列出当前 workspace 的 API Key。"""
+    if principal.workspace_id is None:
+        raise ValidationError("No active workspace")
+    return api_key_service.list_api_keys(principal.workspace_id)
+
+
+@router.post("/api-keys", response_model=ApiKeyCreatedOut, status_code=status.HTTP_201_CREATED)
+async def create_api_key(
+    body: ApiKeyCreateRequest,
+    principal: Principal = Depends(require_permission(Perm.API_KEY_MANAGE)),
+):
+    """创建 API Key（明文 key 仅返回一次）。"""
+    if principal.workspace_id is None:
+        raise ValidationError("No active workspace")
+    return api_key_service.create_api_key(
+        workspace_id=principal.workspace_id,
+        user_id=principal.user_id,
+        name=body.name,
+        scopes=body.scopes,
+        expires_at=body.expires_at,
+    )
+
+
+@router.delete("/api-keys/{key_id}", status_code=204)
+async def revoke_api_key(
+    key_id: int,
+    principal: Principal = Depends(require_permission(Perm.API_KEY_MANAGE)),
+):
+    """撤销 API Key。"""
+    if principal.workspace_id is None:
+        raise ValidationError("No active workspace")
+    ok = api_key_service.revoke_api_key(key_id, principal.workspace_id)
+    if not ok:
+        raise NotFoundError("API key not found")
 
 
 # 测试函数

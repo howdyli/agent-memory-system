@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 from app.services.llm_backend_service import llm_chat
 from app.services.memory_variable_service import set_memory_variable
 from app.services.memory_fragment_service import create_fragment, search_fragments_by_semantic
+from app.core.tracing import get_tracer
 
 # ============================================================
 # 抽取 Prompt
@@ -388,7 +389,7 @@ def llm_extract_memories(
         messages = _build_extraction_messages(conversation, system_prompt=active_prompt)
 
         # 3. 调用 LLM
-        llm_result = llm_chat(user_id=user_id, messages=messages, temperature=0.1)
+        llm_result = llm_chat(user_id=user_id, messages=messages, temperature=0.1, enqueue_on_failure=True)
 
         if not llm_result.get("success"):
             logger.warning(f"LLM 抽取调用失败: {llm_result.get('error', 'unknown')}")
