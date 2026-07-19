@@ -15,6 +15,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from app.core.db_client import get_db_client
+from app.core.tracing import get_tracer
 
 # ============================================================
 # 支持的实体类型
@@ -121,6 +122,7 @@ def ensure_entity(
     entity_type: str,
     aliases: Optional[List[str]] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     创建或返回已有实体。
@@ -139,6 +141,12 @@ def ensure_entity(
         实体信息（含 id）
     """
     try:
+        _span = get_tracer().start_span("graph.ensure_entity")
+        _span.set_attribute("user.id", user_id)
+        _span.set_attribute("entity.type", entity_type)
+        if workspace_id:
+            _span.set_attribute("workspace.id", workspace_id)
+
         _ensure_graph_tables()
         db = get_db_client()
         now = datetime.now().isoformat()
@@ -200,8 +208,13 @@ def ensure_entity(
         }
 
     except Exception as e:
+        if '_span' in locals():
+            _span.record_exception(e)
         logger.error(f"✗ 确保实体失败: {e}")
         return {"success": False, "error": str(e)}
+    finally:
+        if '_span' in locals():
+            _span.end()
 
 
 def search_entities(
@@ -209,6 +222,7 @@ def search_entities(
     query: str,
     entity_type: Optional[str] = None,
     limit: int = 20,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     按名称模糊搜索实体。
@@ -258,6 +272,7 @@ def search_entities(
 def get_entity(
     user_id: int,
     entity_id: int,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     获取实体详情（含关联关系计数）。
@@ -312,6 +327,7 @@ def merge_entities(
     user_id: int,
     target_id: int,
     source_ids: List[int],
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     合并重复实体节点。
@@ -391,6 +407,7 @@ def _record_relationship_history(
     old_properties: Optional[str] = None,
     new_properties: Optional[str] = None,
     valid_from: Optional[str] = None,
+    workspace_id: Optional[int] = None,
     valid_to: Optional[str] = None,
     change_reason: str = "created",
 ) -> int:
@@ -417,6 +434,7 @@ def add_relationship(
     target_type: str = "organization",
     relation_subtype: Optional[str] = None,
     properties: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[int] = None,
     confidence: float = 0.5,
     valid_from: Optional[str] = None,
     extraction_source: str = "manual",
@@ -530,6 +548,7 @@ def deactivate_relationship(
     user_id: int,
     relationship_id: int,
     reason: str = "ended",
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     结束一个关系。
@@ -597,6 +616,7 @@ def update_relationship(
     user_id: int,
     relationship_id: int,
     updates: Dict[str, Any],
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     更新关系属性。
@@ -678,6 +698,7 @@ def get_relationship_history(
     entity2_name: str,
     entity1_type: str = "person",
     entity2_type: str = "organization",
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     获取两个实体之间的关系变化历史（时序追踪）。
@@ -776,6 +797,7 @@ def get_neighbors(
     depth: int = 1,
     max_depth: int = 3,
     entity_id: Optional[int] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     查询指定实体的邻居节点。
@@ -921,6 +943,7 @@ def list_relationships(
     is_active: Optional[bool] = None,
     limit: int = 50,
     offset: int = 0,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     查询关系列表。
@@ -996,6 +1019,7 @@ def get_entity_graph_text(
     center_entity: str,
     entity_type: str = "person",
     max_depth: int = 2,
+    workspace_id: Optional[int] = None,
 ) -> str:
     """
     构建以某实体为中心的图谱文本表示（用于 LLM 上下文注入）。
@@ -1082,6 +1106,7 @@ EXTRACTION_SYSTEM_PROMPT = """你是一个实体与关系抽取引擎。
 def extract_entities_from_text(
     user_id: int,
     text: str,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     从文本中批量抽取实体和关系。
@@ -1110,7 +1135,7 @@ def extract_entities_from_text(
             {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": text},
         ]
-        response = llm_chat(user_id=user_id, messages=msg, temperature=0.1)
+        response = llm_chat(user_id=user_id, messages=msg, temperature=0.1, enqueue_on_failure=True)
         if response.get("success") and response.get("content"):
             import json as _json
             content = response["content"]

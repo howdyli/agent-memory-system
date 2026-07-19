@@ -19,12 +19,14 @@ import {
   BarChartOutlined,
   ExperimentOutlined,
   ShareAltOutlined,
+  TeamOutlined,
   SwapOutlined,
   MessageOutlined,
   BulbOutlined,
   MonitorOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../stores/authStore';
+import WorkspaceSwitcher from './WorkspaceSwitcher';
 
 const { Header, Sider, Content } = Layout;
 
@@ -43,6 +45,7 @@ const ROUTE_TO_GROUP: Record<string, string> = {
   'observability': 'grp-ops',
   'lifecycle': 'grp-ops',
   'system': 'grp-ops',
+  'workspace': 'grp-ops',
 };
 
 const menuItems = [
@@ -86,6 +89,7 @@ const menuItems = [
       { key: '/observability', icon: <BarChartOutlined />, label: '观测中心' },
       { key: '/lifecycle', icon: <ExperimentOutlined />, label: '生命周期' },
       { key: '/system', icon: <SettingOutlined />, label: '系统集成' },
+      { key: '/workspace/settings', icon: <TeamOutlined />, label: 'Workspace' },
     ],
   },
 ];
@@ -142,12 +146,15 @@ export default function AppLayout() {
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed(!collapsed)}
           />
-          <Dropdown menu={userMenu} placement="bottomRight">
-            <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Avatar size="small" icon={<UserOutlined />} style={{ backgroundColor: themeToken.colorPrimary }} />
-              <span style={{ fontSize: 14, fontWeight: 500 }}>{user?.username}</span>
-            </div>
-          </Dropdown>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <WorkspaceSwitcher />
+            <Dropdown menu={userMenu} placement="bottomRight">
+              <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Avatar size="small" icon={<UserOutlined />} style={{ backgroundColor: themeToken.colorPrimary }} />
+                <span style={{ fontSize: 14, fontWeight: 500 }}>{user?.username}</span>
+              </div>
+            </Dropdown>
+          </div>
         </Header>
         <Content className="app-content">
           <Outlet />

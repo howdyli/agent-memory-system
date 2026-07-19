@@ -27,7 +27,7 @@ from app.services.long_term_memory_service import (
     batch_delete_memories,
     adjust_memory_weight,
 )
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +74,12 @@ async def get_all_memories_api(
     sort_order: Optional[str] = "DESC",
     limit: Optional[int] = 50,
     offset: Optional[int] = 0,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """获取所有长期记忆（支持分页、过滤、排序）"""
     try:
         result = get_all_memories(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             memory_type=memory_type,
             sort_by=sort_by or "importance",
             sort_order=sort_order or "DESC",
@@ -106,12 +106,12 @@ async def get_all_memories_api(
 @router.post("/versions")
 async def record_version_api(
     request: RecordVersionRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """记录记忆版本变更"""
     try:
         result = record_version(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             memory_type=request.memory_type,
             memory_id=request.memory_id,
             action=request.action,
@@ -139,12 +139,12 @@ async def record_version_api(
 async def get_version_history_api(
     memory_type: str,
     memory_id: str,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """获取记忆的版本历史"""
     try:
         result = get_version_history(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             memory_type=memory_type,
             memory_id=memory_id
         )
@@ -168,12 +168,12 @@ async def get_version_history_api(
 @router.post("/rollback")
 async def rollback_api(
     request: RollbackRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """回滚到指定版本"""
     try:
         result = rollback_to_version(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             memory_type=request.memory_type,
             memory_id=request.memory_id,
             target_version=request.target_version
@@ -200,12 +200,12 @@ async def get_audit_log_api(
     memory_type: Optional[str] = None,
     limit: Optional[int] = 50,
     offset: Optional[int] = 0,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """获取记忆变更审计日志"""
     try:
         result = get_audit_log(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             memory_type=memory_type,
             limit=limit or 50,
             offset=offset or 0
@@ -232,12 +232,12 @@ async def get_audit_log_api(
 @router.post("/feedback")
 async def submit_feedback_api(
     request: FeedbackRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """提交记忆反馈"""
     try:
         result = submit_feedback(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             memory_type=request.memory_type,
             memory_id=request.memory_id,
             feedback_type=request.feedback_type,
@@ -262,11 +262,11 @@ async def submit_feedback_api(
 
 @router.post("/auto-adjust")
 async def auto_adjust_api(
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """自动调整记忆重要性评分"""
     try:
-        result = auto_adjust_importance(current_user.user_id)
+        result = auto_adjust_importance(principal.user_id)
         if result["success"]:
             return result
         else:
@@ -286,11 +286,11 @@ async def auto_adjust_api(
 
 @router.get("/improvement-stats")
 async def get_improvement_stats_api(
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """获取自我改进效果统计"""
     try:
-        result = get_self_improvement_stats(current_user.user_id)
+        result = get_self_improvement_stats(principal.user_id)
         if result["success"]:
             return result
         else:
@@ -313,12 +313,12 @@ async def get_improvement_stats_api(
 @router.post("/batch-delete")
 async def batch_delete_api(
     request: BatchDeleteRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """批量删除记忆"""
     try:
         result = batch_delete_memories(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             memory_ids=request.memory_ids
         )
         if result["success"]:
@@ -341,12 +341,12 @@ async def batch_delete_api(
 @router.post("/adjust-weight")
 async def adjust_weight_api(
     request: AdjustWeightRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(get_current_principal)
 ):
     """调整记忆权重"""
     try:
         result = adjust_memory_weight(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             memory_type=request.memory_type,
             memory_id=request.memory_id,
             new_weight=request.new_weight

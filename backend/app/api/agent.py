@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.services.agent_loop import memory_aware_chat, memory_aware_chat_stream, MEMORY_TOOLS, _handle_tool_call
 from app.services.agent_memory_sdk import AgentMemoryClient
 from app.services.llm_extraction_service import llm_extract_memories
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class ExecuteToolRequest(BaseModel):
 @router.post("/chat")
 async def agent_chat(
     request: AgentChatRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     带记忆的 Agent 对话（核心入口）
@@ -72,7 +72,7 @@ async def agent_chat(
     """
     try:
         result = memory_aware_chat(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             user_message=request.message,
             system_prompt=request.system_prompt,
             session_id=request.session_id,
@@ -162,7 +162,7 @@ async def _chat_stream_generator(
 @router.post("/chat/stream")
 async def agent_chat_stream(
     request: AgentChatRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     SSE 流式 Agent 对话（渐进式输出）
@@ -176,7 +176,7 @@ async def agent_chat_stream(
     """
     return StreamingResponse(
         _chat_stream_generator(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             message=request.message,
             system_prompt=request.system_prompt,
             session_id=request.session_id,
@@ -192,7 +192,7 @@ async def agent_chat_stream(
 
 @router.get("/tools/schema")
 async def get_tools_schema(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取记忆工具的 Tool Schema（OpenAI Function Calling 格式）
@@ -207,7 +207,7 @@ async def get_tools_schema(
 
 @router.post("/tools")
 async def list_tools(
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     获取可用记忆工具列表（供外部 Agent 注册使用）
@@ -232,7 +232,7 @@ async def list_tools(
 async def execute_tool(
     tool_name: str,
     request: ExecuteToolRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     直接执行指定工具（不经过 Agent 对话）
@@ -247,7 +247,7 @@ async def execute_tool(
         )
 
     try:
-        sdk = AgentMemoryClient(current_user.user_id)
+        sdk = AgentMemoryClient(principal.user_id)
         result_str = _handle_tool_call(sdk, tool_name, request.parameters)
         try:
             result = json.loads(result_str)
@@ -265,7 +265,7 @@ async def execute_tool(
 @router.post("/extract")
 async def extract_memories(
     request: ExtractRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     LLM 驱动的记忆抽取
@@ -275,7 +275,7 @@ async def extract_memories(
     """
     try:
         result = llm_extract_memories(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             conversation=request.conversation,
             auto_store=request.auto_store if request.auto_store is not None else True,
         )

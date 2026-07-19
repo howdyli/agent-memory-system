@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 from app.core.db_client import get_db_client
+from app.core.tracing import get_tracer
 from app.services.memory_observability_service import record_trace_event
 from app.services.memory_fragment_service import (
     get_fragment,
@@ -266,7 +267,7 @@ def estimate_remaining_life(fragment: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def cleanup_expired_memories() -> Dict[str, Any]:
+def cleanup_expired_memories(workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     批量清理已过期的记忆。
 
@@ -341,6 +342,7 @@ def _upsert_lifecycle(
     last_recalled_at: Optional[str] = None,
     archived_at: Optional[str] = None,
     soft_deleted_at: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ) -> bool:
     """创建或更新 memory_lifecycle 记录"""
     try:
@@ -408,6 +410,7 @@ def _record_delete_log(
     reason: Optional[str] = None,
     old_content: Optional[str] = None,
     operator: str = "user",
+    workspace_id: Optional[int] = None,
 ) -> bool:
     """记录删除操作审计日志"""
     try:
@@ -430,6 +433,7 @@ def mark_cold(
     memory_type: str,
     memory_id: str,
     reason: str = "importance_below_threshold",
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     将记忆标记为"冷记忆"状态。
@@ -482,6 +486,7 @@ def mark_cold(
 def auto_archive_cold_memories(
     user_id: Optional[int] = None,
     cold_days: int = DEFAULT_COLD_UNRECALLED_DAYS,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     自动归档长期未被召回的冷记忆。
@@ -555,6 +560,7 @@ def soft_delete(
     memory_type: str,
     memory_id: str,
     reason: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     软删除记忆（标记删除状态，可恢复）。
@@ -652,6 +658,7 @@ def restore_memory(
     user_id: int,
     memory_type: str,
     memory_id: str,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     恢复软删除的记忆。
@@ -725,6 +732,7 @@ def hard_delete(
     memory_type: str,
     memory_id: str,
     reason: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     永久删除记忆（不可恢复）。
@@ -804,6 +812,7 @@ def list_cold_memories(
     user_id: int,
     limit: int = 50,
     offset: int = 0,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     列出用户的冷记忆。
@@ -856,6 +865,7 @@ def list_deleted_memories(
     user_id: int,
     limit: int = 50,
     offset: int = 0,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     列出用户已软删除的记忆（可恢复窗口）。
@@ -908,6 +918,7 @@ def get_delete_log(
     user_id: int,
     limit: int = 50,
     offset: int = 0,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     获取删除操作审计日志。
@@ -951,7 +962,7 @@ def get_delete_log(
         return {"success": False, "error": str(e)}
 
 
-def get_lifecycle_stats(user_id: int) -> Dict[str, Any]:
+def get_lifecycle_stats(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取生命周期统计信息。
 
@@ -1087,7 +1098,7 @@ def _llm_judge_merge_conflict(
                 {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT_FOR_MERGE},
                 {"role": "user", "content": prompt},
             ]
-            result = llm_chat(user_id=user_id, messages=msg, temperature=0.1)
+            result = llm_chat(user_id=user_id, messages=msg, temperature=0.1, enqueue_on_failure=True)
             if result.get("success"):
                 import json as _json
                 try:
@@ -1118,6 +1129,7 @@ def find_duplicates(
     content: str,
     threshold: float = 0.85,
     limit: int = 10,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     检测与指定内容重复的记忆。
@@ -1172,6 +1184,7 @@ def detect_conflicts(
     key: str,
     new_value: str,
     conflict_type: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     检测记忆值冲突。
@@ -1260,6 +1273,7 @@ def merge_memories(
     source_ids: List[int],
     target_content: str,
     target_type: str = "info",
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     合并多条重复记忆。
@@ -1370,6 +1384,7 @@ def resolve_conflict(
     conflict_id: int,
     resolution: str,
     merged_value: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     解决一条已检测到的记忆冲突，并将最终值写回记忆变量。
@@ -1457,7 +1472,7 @@ def resolve_conflict(
         return {"success": False, "error": str(e)}
 
 
-def list_pending_conflicts(user_id: int) -> Dict[str, Any]:
+def list_pending_conflicts(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     列出待处理的冲突记录。
 
@@ -1494,6 +1509,7 @@ def list_merge_log(
     user_id: int,
     limit: int = 50,
     offset: int = 0,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     获取合并操作审计日志。

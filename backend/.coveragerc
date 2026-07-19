@@ -18,5 +18,9 @@ exclude_lines =
     if TYPE_CHECKING:
     @abstractmethod
 
-fail_under = 0
+# 覆盖率门槛（ratchet 策略）：
+#   当前实测基线 ~50%（新增 webhook/otel/event 关键路径测试后）。
+#   门槛设为 48% 以防回退，同时避免阻塞所有 PR（见方案风险表与 Rejected Alternatives）。
+#   路线图：48% (当前) -> 60% (补充 lifecycle/observability/graph 测试后) -> 80% (长期目标)。
+fail_under = 48
 show_missing = True

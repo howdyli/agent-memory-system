@@ -70,7 +70,8 @@ def record_version(user_id: int,
                    memory_id: str,
                    action: str,
                    old_value: Any = None,
-                   new_value: Any = None) -> Dict[str, Any]:
+                   new_value: Any = None,
+                   workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     记录记忆版本变更
     
@@ -119,7 +120,8 @@ def record_version(user_id: int,
 
 def get_version_history(user_id: int,
                         memory_type: str,
-                        memory_id: str) -> Dict[str, Any]:
+                        memory_id: str,
+                        workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取记忆的版本历史
     
@@ -172,7 +174,8 @@ def get_version_history(user_id: int,
 def rollback_to_version(user_id: int,
                         memory_type: str,
                         memory_id: str,
-                        target_version: int) -> Dict[str, Any]:
+                        target_version: int,
+                        workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     回滚到指定版本
     
@@ -238,7 +241,8 @@ def rollback_to_version(user_id: int,
 def get_audit_log(user_id: int,
                   memory_type: Optional[str] = None,
                   limit: int = 50,
-                  offset: int = 0) -> Dict[str, Any]:
+                  offset: int = 0,
+                  workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取记忆变更审计日志
     
@@ -299,7 +303,8 @@ def submit_feedback(user_id: int,
                     memory_type: str,
                     memory_id: str,
                     feedback_type: str,
-                    feedback_value: float = 1.0) -> Dict[str, Any]:
+                    feedback_value: float = 1.0,
+                    workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     提交用户对记忆的反馈
     
@@ -353,7 +358,7 @@ def submit_feedback(user_id: int,
         return {"success": False, "error": str(e)}
 
 
-def auto_adjust_importance(user_id: int) -> Dict[str, Any]:
+def auto_adjust_importance(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     自动调整所有记忆片段的重要性评分
     
@@ -421,7 +426,7 @@ def auto_adjust_importance(user_id: int) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-def get_self_improvement_stats(user_id: int) -> Dict[str, Any]:
+def get_self_improvement_stats(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取自我改进效果统计
     
@@ -498,7 +503,8 @@ def get_all_memories(user_id: int,
                      sort_by: str = "importance",
                      sort_order: str = "DESC",
                      limit: int = 50,
-                     offset: int = 0) -> Dict[str, Any]:
+                     offset: int = 0,
+                     workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取所有长期记忆（支持分页、过滤、排序）
     
@@ -589,7 +595,8 @@ def get_all_memories(user_id: int,
 
 
 def batch_delete_memories(user_id: int,
-                          memory_ids: List[Dict[str, str]]) -> Dict[str, Any]:
+                          memory_ids: List[Dict[str, str]],
+                          workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     批量删除记忆
     
@@ -643,7 +650,8 @@ def batch_delete_memories(user_id: int,
 def adjust_memory_weight(user_id: int,
                          memory_type: str,
                          memory_id: str,
-                         new_weight: float) -> Dict[str, Any]:
+                         new_weight: float,
+                         workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     手动调整记忆权重和重要性评分
     

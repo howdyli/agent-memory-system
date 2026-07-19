@@ -25,7 +25,8 @@ from app.services.llm_extraction_service import (
     upsert_extraction_template,
     reset_extraction_template,
 )
-from app.core.auth import get_current_user, User
+from app.core.auth import Principal, get_current_principal
+from app.core.rbac import Perm, require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class UpdateTemplateRequest(BaseModel):
 @router.post("/process")
 async def process_input(
     request: ProcessInputRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     处理用户输入，抽取并存储记忆变量
@@ -92,7 +93,7 @@ async def process_input(
     """
     try:
         result = process_user_input(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             user_input=request.user_input,
             session_id=request.session_id
         )
@@ -110,7 +111,7 @@ async def process_input(
 @router.post("/inject")
 async def inject_prompt(
     request: InjectPromptRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     将记忆变量注入到 Prompt 模板中
@@ -124,7 +125,7 @@ async def inject_prompt(
     """
     try:
         injected = inject_memory_into_prompt(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             prompt_template=request.prompt_template,
             session_id=request.session_id,
             custom_variables=request.custom_variables
@@ -147,7 +148,7 @@ async def inject_prompt(
 @router.post("/generate")
 async def generate_response(
     request: GenerateResponseRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     生成个性化回复（基于记忆变量）
@@ -161,7 +162,7 @@ async def generate_response(
     """
     try:
         personalized = generate_personalized_response(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             response_template=request.response_template,
             session_id=request.session_id,
             context=request.context
@@ -184,7 +185,7 @@ async def generate_response(
 @router.post("/batch-extract")
 async def batch_extract(
     request: BatchExtractRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     从对话历史中批量抽取记忆变量
@@ -198,7 +199,7 @@ async def batch_extract(
     """
     try:
         result = batch_extract_from_conversation(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             conversation_history=request.conversation_history,
             session_id=request.session_id
         )
@@ -216,7 +217,7 @@ async def batch_extract(
 @router.get("/context")
 async def get_context(
     session_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     获取用户上下文（用于注入到 LLM Prompt）
@@ -230,7 +231,7 @@ async def get_context(
     """
     try:
         context_str = get_user_context_for_llm(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             session_id=session_id
         )
         
@@ -249,7 +250,7 @@ async def get_context(
 
 @router.get("/summary")
 async def get_memory_summary(
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     获取用户记忆摘要
@@ -265,13 +266,13 @@ async def get_memory_summary(
     try:
         # 获取用户上下文
         context_str = get_user_context_for_llm(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             session_id=None
         )
         
         # 获取记忆变量
         from app.services.memory_variable_service import list_memory_variables
-        variables = list_memory_variables(user_id=current_user.user_id)
+        variables = list_memory_variables(user_id=principal.user_id)
         
         # 构建摘要
         summary_parts = []
@@ -314,7 +315,7 @@ VALID_RATINGS = {"correct", "partial", "incorrect"}
 @router.post("/feedback")
 async def submit_feedback(
     request: FeedbackRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     接收用户对抽取结果的反馈
@@ -338,7 +339,7 @@ async def submit_feedback(
             """INSERT INTO extraction_feedback (user_id, extraction_id, rating, correction, source_text, extracted_data)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (
-                current_user.user_id,
+                principal.user_id,
                 request.extraction_id,
                 request.rating,
                 request.correction,
@@ -368,7 +369,7 @@ async def submit_feedback(
 @router.get("/feedback")
 async def list_feedback(
     limit: int = 50,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """获取当前用户的抽取反馈历史（用于前端避免重复反馈）。"""
     try:
@@ -378,7 +379,7 @@ async def list_feedback(
             """SELECT extraction_id, rating, correction, created_at
                FROM extraction_feedback WHERE user_id = ?
                ORDER BY created_at DESC LIMIT ?""",
-            (current_user.user_id, min(limit, 200)),
+            (principal.user_id, min(limit, 200)),
         )
         feedbacks = []
         if rows:
@@ -400,7 +401,7 @@ async def list_feedback(
 
 @router.get("/templates")
 async def get_templates(
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
     """
     获取抽取 Prompt 模板列表
@@ -408,7 +409,7 @@ async def get_templates(
     返回用户自定义模板 + 默认模板。
     """
     try:
-        templates = list_extraction_templates(current_user.user_id)
+        templates = list_extraction_templates(principal.user_id)
         return {"success": True, "templates": templates, "count": len(templates)}
     except Exception as e:
         logger.error(f"✗ 获取抽取模板失败: {e}")
@@ -422,7 +423,7 @@ async def get_templates(
 async def update_template(
     name: str,
     request: UpdateTemplateRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     更新（或创建）抽取 Prompt 模板
@@ -432,7 +433,7 @@ async def update_template(
     """
     try:
         result = upsert_extraction_template(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             name=name,
             content=request.content,
             set_active=request.set_active if request.set_active is not None else True,
@@ -455,11 +456,11 @@ async def update_template(
 
 @router.post("/templates/reset")
 async def reset_template(
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """恢复默认抽取 Prompt 模板。"""
     try:
-        result = reset_extraction_template(current_user.user_id)
+        result = reset_extraction_template(principal.user_id)
         if not result.get("success"):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -479,7 +480,7 @@ async def reset_template(
 @router.post("/preview")
 async def preview_extraction(
     request: PreviewRequest,
-    current_user: User = Depends(get_current_user)
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """
     预览抽取结果（不保存）
@@ -501,7 +502,7 @@ async def preview_extraction(
 
         # auto_store=False → 仅抽取不保存
         result = llm_extract_memories(
-            user_id=current_user.user_id,
+            user_id=principal.user_id,
             conversation=conversation,
             auto_store=False,
             session_id=request.session_id,

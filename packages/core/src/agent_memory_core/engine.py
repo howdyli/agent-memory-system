@@ -23,6 +23,21 @@ from .config import CoreConfig
 from .events import EventEmitter, MemoryEvent, MemoryEventType, EventHandler
 from .store.base import RelationalStore, VectorStore, CacheStore
 from .store.factory import create_relational_store, create_vector_store, create_cache_store
+from .modules import (
+    VariableManager,
+    FragmentManager,
+    TableManager,
+    ObservabilityManager,
+    GraphManager,
+    LifecycleManager,
+    RecallManager,
+    LLMBackend,
+    ContextCompressor,
+    HybridSearchManager,
+    SecurityManager,
+    ExtractionManager,
+    create_backend,
+)
 
 
 class MemoryEngine:
@@ -38,6 +53,7 @@ class MemoryEngine:
         vector_store: VectorStore,
         cache_store: Optional[CacheStore] = None,
         event_emitter: Optional[EventEmitter] = None,
+        llm_backend: Optional[LLMBackend] = None,
         config: Optional[CoreConfig] = None,
     ):
         self._relational = relational_store
@@ -45,13 +61,91 @@ class MemoryEngine:
         self._cache = cache_store
         self._events = event_emitter or EventEmitter()
         self._config = config or CoreConfig()
+        self._llm = llm_backend
 
         # Ensure schema exists
         self._relational.ensure_schema()
 
-        # Sub-managers will be initialized in Phase 1 module migration
-        # For now, the engine delegates directly to stores
-        self._managers_initialized = False
+        # Initialize all sub-managers
+        self._init_managers()
+
+    def _init_managers(self) -> None:
+        """Assemble all sub-managers with proper dependency injection."""
+        # ── Core managers (no cross-manager dependencies) ─────────
+
+        self._variable_mgr = VariableManager(
+            relational_store=self._relational,
+            cache_store=self._cache,
+            event_emitter=self._events,
+        )
+
+        self._fragment_mgr = FragmentManager(
+            relational_store=self._relational,
+            vector_store=self._vector,
+            event_emitter=self._events,
+        )
+
+        self._table_mgr = TableManager(
+            relational_store=self._relational,
+            event_emitter=self._events,
+        )
+
+        self._security_mgr = SecurityManager()
+
+        # ── Managers with optional LLM ────────────────────────────
+
+        self._observability_mgr = ObservabilityManager(
+            relational_store=self._relational,
+            cache_store=self._cache,
+            event_emitter=self._events,
+            llm_backend=self._llm,
+        )
+
+        self._graph_mgr = GraphManager(
+            relational_store=self._relational,
+            event_emitter=self._events,
+            llm_backend=self._llm,
+        )
+
+        self._lifecycle_mgr = LifecycleManager(
+            relational_store=self._relational,
+            event_emitter=self._events,
+        )
+
+        # ── Managers with cross-manager dependencies ──────────────
+
+        self._recall_mgr = RecallManager(
+            relational_store=self._relational,
+            vector_store=self._vector,
+            event_emitter=self._events,
+            lifecycle_manager=self._lifecycle_mgr,
+        )
+
+        self._extraction_mgr = ExtractionManager(
+            llm_backend=self._llm,
+            variable_manager=self._variable_mgr,
+            fragment_manager=self._fragment_mgr,
+            event_emitter=self._events,
+        )
+
+        self._search_mgr = HybridSearchManager(
+            relational_store=self._relational,
+            vector_store=self._vector,
+            cache_store=self._cache,
+            llm_backend=self._llm,
+        )
+
+        self._compressor = ContextCompressor(
+            relational_store=self._relational,
+            vector_store=self._vector,
+            variable_manager=self._variable_mgr,
+            fragment_manager=self._fragment_mgr,
+            recall_manager=self._recall_mgr,
+            cache_store=self._cache,
+            llm_backend=self._llm,
+        )
+
+        self._managers_initialized = True
 
     @classmethod
     def from_config(cls, config: Optional[CoreConfig] = None) -> "MemoryEngine":
@@ -63,134 +157,149 @@ class MemoryEngine:
         vector = create_vector_store(config)
         cache = create_cache_store(config)
 
+        # Create LLM backend from config if available
+        llm = None
+        if config.llm_provider and config.llm_api_key:
+            llm = create_backend({
+                "provider": config.llm_provider,
+                "api_key": config.llm_api_key,
+                "model": config.llm_model,
+                "base_url": config.llm_base_url,
+            })
+
         return cls(
             relational_store=relational,
             vector_store=vector,
             cache_store=cache,
             event_emitter=EventEmitter(),
+            llm_backend=llm,
             config=config,
         )
+
+    # ── Sub-manager Access ───────────────────────────────────────
+
+    @property
+    def variables(self) -> VariableManager:
+        """Access VariableManager directly."""
+        return self._variable_mgr
+
+    @property
+    def fragments(self) -> FragmentManager:
+        """Access FragmentManager directly."""
+        return self._fragment_mgr
+
+    @property
+    def tables(self) -> TableManager:
+        """Access TableManager directly."""
+        return self._table_mgr
+
+    @property
+    def observability(self) -> ObservabilityManager:
+        """Access ObservabilityManager directly."""
+        return self._observability_mgr
+
+    @property
+    def graph(self) -> GraphManager:
+        """Access GraphManager directly."""
+        return self._graph_mgr
+
+    @property
+    def lifecycle(self) -> LifecycleManager:
+        """Access LifecycleManager directly."""
+        return self._lifecycle_mgr
+
+    @property
+    def recall_manager(self) -> RecallManager:
+        """Access RecallManager directly."""
+        return self._recall_mgr
+
+    @property
+    def extraction(self) -> ExtractionManager:
+        """Access ExtractionManager directly."""
+        return self._extraction_mgr
+
+    @property
+    def search_manager(self) -> HybridSearchManager:
+        """Access HybridSearchManager directly."""
+        return self._search_mgr
+
+    @property
+    def compressor(self) -> ContextCompressor:
+        """Access ContextCompressor directly."""
+        return self._compressor
+
+    @property
+    def security(self) -> SecurityManager:
+        """Access SecurityManager directly."""
+        return self._security_mgr
 
     # ── High-level Convenience Methods ──────────────────────────
     # Compatible with existing AgentMemoryClient API for smooth migration
 
     def remember(self, workspace_id: int, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        """Set a memory variable. Compatible with existing SDK API."""
-        success = self._relational.set_variable(workspace_id, key, value, ttl=ttl)
-        if success:
-            self._events.emit(MemoryEvent(
-                event_type=MemoryEventType.VARIABLE_SET,
-                workspace_id=workspace_id,
-                memory_type="variable",
-                memory_id=key,
-                data={"key": key, "value": str(value)[:100]},
-            ))
-        return success
+        """Set a memory variable. Delegates to VariableManager."""
+        return self._variable_mgr.set(workspace_id, key, value, ttl=ttl)
 
-    def recall(self, workspace_id: int, query: str, top_k: int = 5) -> List[Dict]:
-        """Recall relevant memories — hybrid search (vector + FTS + lifecycle)."""
+    def recall(self, workspace_id: int, query: str, top_k: int = 5, budget_tokens: Optional[int] = None) -> Dict:
+        """Recall relevant memories — delegates to RecallManager."""
         self._events.emit(MemoryEvent(
             event_type=MemoryEventType.RECALL_TRIGGERED,
             workspace_id=workspace_id,
             data={"query": query, "top_k": top_k},
         ))
 
-        # Vector search
-        vector_results = self._vector.search(
-            "memory_fragments",
-            query_text=query,
-            n_results=top_k,
-            where={"user_id": str(workspace_id)} if self._vector else None,
+        result = self._recall_mgr.recall(
+            workspace_id=workspace_id,
+            query=query,
+            top_k=top_k,
+            budget_tokens=budget_tokens,
         )
-
-        # FTS keyword search
-        fts_results = self._relational.fts_search(query, limit=top_k)
-
-        # Combine: vector results first (higher quality), then FTS
-        results = []
-        seen_ids = set()
-        for r in vector_results:
-            frag_id = r.get("id", "")
-            if frag_id not in seen_ids:
-                seen_ids.add(frag_id)
-                results.append({
-                    "type": "vector",
-                    "content": r.get("document", ""),
-                    "metadata": r.get("metadata", {}),
-                    "similarity": r.get("similarity"),
-                    "distance": r.get("distance"),
-                })
-
-        for r in fts_results:
-            frag_id = str(r.get("rowid", ""))
-            if frag_id not in seen_ids:
-                seen_ids.add(frag_id)
-                results.append({
-                    "type": "fts",
-                    "content": r.get("content", ""),
-                    "fragment_type": r.get("fragment_type", ""),
-                })
-
-        # Also check variables for exact key match
-        var_value = self._relational.get_variable(workspace_id, query)
-        if var_value is not None:
-            results.insert(0, {
-                "type": "variable",
-                "key": query,
-                "value": var_value,
-            })
 
         self._events.emit(MemoryEvent(
             event_type=MemoryEventType.RECALL_COMPLETED,
             workspace_id=workspace_id,
-            data={"query": query, "results_count": len(results)},
+            data={"query": query, "results_count": len(result.memories)},
         ))
 
-        return results[:top_k]
+        return {
+            "memories": result.memories,
+            "context_text": result.context_text,
+            "total_candidates": result.total_candidates,
+            "token_used": result.token_used,
+        }
 
     def forget(self, workspace_id: int, key: str) -> bool:
-        """Delete a memory variable."""
-        success = self._relational.delete_variable(workspace_id, key)
-        if success:
-            self._events.emit(MemoryEvent(
-                event_type=MemoryEventType.VARIABLE_DELETED,
-                workspace_id=workspace_id,
-                memory_type="variable",
-                memory_id=key,
-            ))
-        return success
+        """Delete a memory variable. Delegates to VariableManager."""
+        return self._variable_mgr.delete(workspace_id, key)
 
-    def search(self, workspace_id: int, query: str, top_k: int = 5, threshold: float = 0.3) -> List[Dict]:
-        """Semantic search across memory fragments."""
+    def search(self, workspace_id: int, query: str, top_k: int = 5, threshold: float = 0.3) -> Dict:
+        """Hybrid search across memory fragments. Delegates to HybridSearchManager."""
         self._events.emit(MemoryEvent(
             event_type=MemoryEventType.SEARCH_TRIGGERED,
             workspace_id=workspace_id,
             data={"query": query, "top_k": top_k, "threshold": threshold},
         ))
 
-        results = self._vector.search(
-            "memory_fragments",
-            query_text=query,
-            n_results=top_k,
-            where={"user_id": str(workspace_id)},
+        result = self._search_mgr.search(
+            workspace_id=workspace_id,
+            query=query,
+            top_k=top_k,
         )
-
-        # Filter by threshold
-        filtered = [r for r in results if (r.get("similarity") or 0) >= threshold]
 
         self._events.emit(MemoryEvent(
             event_type=MemoryEventType.SEARCH_COMPLETED,
             workspace_id=workspace_id,
-            data={"results_count": len(filtered)},
+            data={"results_count": result.get("count", 0)},
         ))
-        return filtered
+
+        return result
 
     def get_context(self, workspace_id: int, session_id: Optional[str] = None) -> Dict:
         """Get assembled context for a workspace — all active memories."""
-        variables = self._relational.list_variables(workspace_id)
-        fragments = self._relational.list_fragments(workspace_id, lifecycle_status="active")
-        tables = self._relational.list_tables(workspace_id)
-        entities = self._relational.list_entities(workspace_id)
+        variables = self._variable_mgr.list(workspace_id)
+        fragments = self._fragment_mgr.list(workspace_id, lifecycle_status="active")
+        tables = self._table_mgr.list_tables(workspace_id)
+        entities = self._graph_mgr.search_entities(workspace_id, query="", limit=100)
 
         return {
             "workspace_id": workspace_id,
@@ -206,8 +315,8 @@ class MemoryEngine:
         fragment_type: str = "info", ttl: Optional[int] = None,
         importance_score: float = 0.5,
     ) -> int:
-        """Create a memory fragment with automatic embedding."""
-        fragment_id = self._relational.create_fragment(
+        """Create a memory fragment with automatic embedding. Delegates to FragmentManager."""
+        return self._fragment_mgr.create(
             workspace_id=workspace_id,
             fragment_type=fragment_type,
             content=content,
@@ -215,26 +324,20 @@ class MemoryEngine:
             importance_score=importance_score,
         )
 
-        # Add to vector store for semantic search
-        embedding_id = self._vector.add(
-            "memory_fragments",
-            doc_id=str(fragment_id),
-            text=content,
-            metadata={"user_id": str(workspace_id), "fragment_type": fragment_type},
-        )
+    # ── Build Context ────────────────────────────────────────────
 
-        # Link embedding back to fragment
-        self._relational.update_fragment(workspace_id, fragment_id, embedding_id=embedding_id)
-
-        self._events.emit(MemoryEvent(
-            event_type=MemoryEventType.FRAGMENT_CREATED,
+    def build_context(
+        self,
+        workspace_id: int,
+        session_id: str,
+        user_query: str,
+    ) -> str:
+        """Build complete injection context. Delegates to ContextCompressor."""
+        return self._compressor.build_context(
             workspace_id=workspace_id,
-            memory_type="fragment",
-            memory_id=str(fragment_id),
-            data={"fragment_type": fragment_type, "content_preview": content[:100]},
-        ))
-
-        return fragment_id
+            session_id=session_id,
+            user_query=user_query,
+        )
 
     # ── Event Hooks ─────────────────────────────────────────────
 
@@ -246,7 +349,7 @@ class MemoryEngine:
         """Remove an event handler."""
         self._events.off(event_type, handler)
 
-    # ── Direct Store Access (for sub-managers) ──────────────────
+    # ── Direct Store Access (for advanced use) ──────────────────
 
     @property
     def relational_store(self) -> RelationalStore:

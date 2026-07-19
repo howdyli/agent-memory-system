@@ -22,7 +22,8 @@ from app.services.memory_variable_service import (
 
 def process_user_input(user_id: int,
                          user_input: str,
-                         session_id: Optional[str] = None) -> Dict[str, Any]:
+                         session_id: Optional[str] = None,
+                         workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     处理用户输入，使用 LLM 智能抽取并存储记忆变量
     
@@ -123,7 +124,8 @@ def process_user_input(user_id: int,
 def inject_memory_into_prompt(user_id: int,
                              prompt_template: str,
                              session_id: Optional[str] = None,
-                             custom_variables: Optional[Dict[str, Any]] = None) -> str:
+                             custom_variables: Optional[Dict[str, Any]] = None,
+                             workspace_id: Optional[int] = None) -> str:
     """
     将记忆变量注入到 Prompt 模板中
     
@@ -160,7 +162,8 @@ def inject_memory_into_prompt(user_id: int,
 def generate_personalized_response(user_id: int,
                                       response_template: str,
                                       session_id: Optional[str] = None,
-                                      context: Optional[Dict[str, Any]] = None) -> str:
+                                      context: Optional[Dict[str, Any]] = None,
+                                      workspace_id: Optional[int] = None) -> str:
     """
     生成个性化回复（基于记忆变量）
     
@@ -196,7 +199,8 @@ def generate_personalized_response(user_id: int,
 
 def batch_extract_from_conversation(user_id: int,
                                       conversation_history: List[Dict[str, str]],
-                                      session_id: Optional[str] = None) -> Dict[str, Any]:
+                                      session_id: Optional[str] = None,
+                                      workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     从整个对话历史中批量抽取记忆变量
     
@@ -250,7 +254,8 @@ def batch_extract_from_conversation(user_id: int,
 
 
 def get_user_context_for_llm(user_id: int,
-                             session_id: Optional[str] = None) -> str:
+                             session_id: Optional[str] = None,
+                             workspace_id: Optional[int] = None) -> str:
     """
     获取用户上下文（用于注入到 LLM Prompt）
     

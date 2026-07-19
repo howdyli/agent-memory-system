@@ -6,6 +6,7 @@ Memory Observability - 记忆观测性模块
 2. 记忆追踪 - 记忆从创建到收回的完整链路/对话触发抽取记录
 3. 质量评估 - LLM自动评估准确率/召回相关性/用户满意度
 """
+import asyncio
 import logging
 import json
 import math
@@ -35,6 +36,7 @@ def record_trace_event(
     score: Optional[float] = None,
     latency_ms: Optional[float] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     记录记忆生命周期追踪事件。
@@ -68,10 +70,33 @@ def record_trace_event(
             (user_id, memory_id, memory_type, event_type, event_source,
              conversation_id, session_id, score, latency_ms, metadata_json)
         )
-        return {"success": True}
+        result = {"success": True}
     except Exception as e:
         logger.debug(f"记录追踪事件失败: {e}")
         return {"success": False, "error": str(e)}
+
+    # Phase 4: 异步发布事件到 EventBus（fire-and-forget）
+    try:
+        from app.core.events import MemoryEvent
+        from app.core.event_bus import get_event_bus
+
+        event = MemoryEvent.from_trace_event(
+            user_id=user_id,
+            memory_id=memory_id,
+            memory_type=memory_type,
+            event_type=event_type,
+            event_source=event_source,
+            workspace_id=workspace_id,
+            score=score,
+            metadata=metadata,
+        )
+        event_bus = get_event_bus()
+        loop = asyncio.get_event_loop()
+        loop.create_task(event_bus.publish(event))
+    except Exception as e:
+        logger.debug(f"EventBus publish failed (non-critical): {e}")
+
+    return result
 
 
 def get_memory_trace(
@@ -162,6 +187,7 @@ def get_trace_events(
     event_source: Optional[str] = None,
     days: int = 7,
     limit: int = 100,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     获取追踪事件列表。
@@ -228,6 +254,7 @@ def record_extraction_trigger(
     session_id: Optional[str] = None,
     query_snippet: Optional[str] = None,
     fragments_created: int = 0,
+    workspace_id: Optional[int] = None,
     llm_tokens_used: int = 0,
 ) -> Dict[str, Any]:
     """
@@ -265,6 +292,7 @@ def get_extraction_triggers(
     user_id: int,
     limit: int = 50,
     days: int = 30,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     获取抽取触发记录。
@@ -320,7 +348,7 @@ def _calc_percentile(values: List[float], percentile: float) -> float:
     return sorted_vals[idx]
 
 
-def get_dashboard_stats(user_id: int) -> Dict[str, Any]:
+def get_dashboard_stats(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取观测仪表盘聚合指标。
 
@@ -490,7 +518,7 @@ def get_dashboard_stats(user_id: int) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-def snapshot_metrics(user_id: int) -> Dict[str, Any]:
+def snapshot_metrics(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     对当前指标执行快照，写入 memory_metrics_snapshots 表。
 
@@ -533,6 +561,7 @@ def snapshot_metrics(user_id: int) -> Dict[str, Any]:
 def get_metrics_history(
     user_id: int,
     days: int = 30,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     获取指标历史时间序列。
@@ -610,6 +639,7 @@ def _call_llm_eval(prompt: str, user_id: int) -> Tuple[Optional[float], Optional
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
+            enqueue_on_failure=True,
         )
         if not result.get("success") or not result.get("content"):
             return None, None
@@ -639,6 +669,7 @@ def evaluate_memory_accuracy(
     memory_id: str,
     conversation_text: Optional[str] = None,
     memory_type: str = "fragment",
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     LLM 自动评估记忆片段准确率。
@@ -728,6 +759,7 @@ def evaluate_recall_relevance(
     user_id: int,
     query: str,
     fragments: List[Dict[str, Any]],
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     评估召回片段与查询的相关性。
@@ -799,6 +831,7 @@ def evaluate_recall_relevance(
 def batch_evaluate_quality(
     user_id: int,
     limit: int = 10,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     批量评估最近创建的记忆片段质量。
