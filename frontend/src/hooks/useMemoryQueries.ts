@@ -33,6 +33,7 @@ export function useTableRecords(tableName: string) {
     queryKey: ['tables', tableName, 'records'],
     queryFn: () => tablesApi.queryRecords(tableName).then(r => r.data?.records || r.data || []),
     enabled: !!tableName,
+    retry: false, // 表不存在（如刚被删）时不重试，避免重复 400
   });
 }
 
@@ -40,7 +41,11 @@ export function useAddRecord(tableName: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (record: Record<string, unknown>) => tablesApi.addRecord(tableName, record),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tables', tableName, 'records'] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tables', tableName, 'records'] });
+      // exact: 仅刷新表列表（行数），避免级联到其它表的记录查询
+      qc.invalidateQueries({ queryKey: ['tables'], exact: true });
+    },
   });
 }
 
@@ -307,7 +312,7 @@ export function useCreateTable() {
   return useMutation({
     mutationFn: (data: { table_name: string; fields: { name: string; type: string }[]; description?: string }) =>
       tablesApi.create(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tables'] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tables'], exact: true }); },
   });
 }
 
@@ -315,7 +320,13 @@ export function useDropTable() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (tableName: string) => tablesApi.drop(tableName),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tables'] }); },
+    onSuccess: () => {
+      // 仅刷新表列表（exact）。不能用 removeQueries 清除已删表的记录查询：
+      // 删除瞬间该查询仍有活跃观察者（selectedTable 尚未重渲清空），
+      // removeQueries 会触发观察者重新拉取已删表 → 400。
+      // exact:true 不会级联到记录子查询，观察者在选中清空后自然失活。
+      qc.invalidateQueries({ queryKey: ['tables'], exact: true });
+    },
   });
 }
 
@@ -323,7 +334,10 @@ export function useDeleteRecord(tableName: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (recordId: number) => tablesApi.deleteRecord(tableName, recordId),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tables', tableName, 'records'] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tables', tableName, 'records'] });
+      qc.invalidateQueries({ queryKey: ['tables'], exact: true });
+    },
   });
 }
 
@@ -336,7 +350,10 @@ export function useBatchDeleteRecords(tableName: string) {
       );
       return results;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tables', tableName, 'records'] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tables', tableName, 'records'] });
+      qc.invalidateQueries({ queryKey: ['tables'], exact: true });
+    },
   });
 }
 
@@ -344,7 +361,10 @@ export function useBatchImportRecords(tableName: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (records: Record<string, unknown>[]) => tablesApi.batchImport(tableName, records),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tables', tableName, 'records'] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tables', tableName, 'records'] });
+      qc.invalidateQueries({ queryKey: ['tables'], exact: true });
+    },
   });
 }
 

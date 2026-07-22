@@ -3,7 +3,7 @@ import { Card, Table, Button, Modal, Form, Input, Select, Space, Popconfirm, mes
 import { PlusOutlined, DeleteOutlined, ReloadOutlined, SearchOutlined, ImportOutlined, InboxOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import { tablesApi } from '../services/api';
-import { useTables, useTableRecords, useCreateTable, useDropTable, useDeleteRecord, useBatchDeleteRecords, useBatchImportRecords } from '../hooks/useMemoryQueries';
+import { useTables, useTableRecords, useCreateTable, useDropTable, useAddRecord, useDeleteRecord, useBatchDeleteRecords, useBatchImportRecords } from '../hooks/useMemoryQueries';
 import AdvancedFilter, { filterRecords, type FilterCondition, type FilterField, type FilterLogic } from '../components/AdvancedFilter';
 import BatchOperationBar from '../components/BatchOperationBar';
 import type { BatchAction } from '../components/BatchOperationBar';
@@ -19,6 +19,7 @@ export default function TablesPage() {
   const { data: records = [], isLoading: recordsLoading } = useTableRecords(selectedTable || '');
   const createTable = useCreateTable();
   const dropTable = useDropTable();
+  const addRecord = useAddRecord(selectedTable || '');
   const deleteRecord = useDeleteRecord(selectedTable || '');
 
   const [createModal, setCreateModal] = useState(false);
@@ -61,10 +62,11 @@ export default function TablesPage() {
   };
 
   const handleDropTable = async (name: string) => {
+    // 先清空选中，禁用该表的记录查询，避免删除后失效刷新触发对已删表的请求（400）
+    if (selectedTable === name) setSelectedTable(null);
     try {
       await dropTable.mutateAsync(name);
       message.success('表已删除');
-      if (selectedTable === name) setSelectedTable(null);
     } catch { message.error('删除失败'); }
   };
 
@@ -72,7 +74,7 @@ export default function TablesPage() {
     if (!selectedTable) return;
     const vals = await addForm.validateFields();
     try {
-      await tablesApi.addRecord(selectedTable, vals);
+      await addRecord.mutateAsync(vals);
       message.success('记录已添加');
       setAddModal(false);
       addForm.resetFields();
