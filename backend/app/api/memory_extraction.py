@@ -4,8 +4,8 @@
 import logging
 import fastapi as _fastapi
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from typing import Optional, Any, Dict, List
+from pydantic import BaseModel, Field
+from typing import Optional, Any, Dict, List, Literal
 
 # 导入服务
 import sys
@@ -65,7 +65,7 @@ class FeedbackRequest(BaseModel):
 
 
 class PreviewRequest(BaseModel):
-    text: str
+    text: str = Field(..., min_length=1, description="待抽取的文本（不能为空）")
     session_id: Optional[str] = None
 
 
@@ -489,12 +489,6 @@ async def preview_extraction(
     用于在用户确认前预览抽取质量。
     """
     try:
-        if not request.text or not request.text.strip():
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="text 不能为空",
-            )
-
         conversation = [
             {"role": "user", "content": request.text},
             {"role": "assistant", "content": "好的，我已经记住了这些信息。"},
