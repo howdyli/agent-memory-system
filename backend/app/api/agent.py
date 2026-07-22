@@ -76,6 +76,7 @@ async def agent_chat(
             user_message=request.message,
             system_prompt=request.system_prompt,
             session_id=request.session_id,
+            workspace_id=principal.workspace_id,
         )
 
         if result.get("success"):
@@ -110,6 +111,7 @@ async def _chat_stream_generator(
     message: str,
     system_prompt: Optional[str] = None,
     session_id: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ) -> AsyncGenerator[str, None]:
     """SSE 事件生成器 - 真流式输出 Agent 对话结果"""
     try:
@@ -118,6 +120,7 @@ async def _chat_stream_generator(
             user_message=message,
             system_prompt=system_prompt,
             session_id=session_id,
+            workspace_id=workspace_id,
         ):
             event_type = event.get("type")
 
@@ -180,6 +183,7 @@ async def agent_chat_stream(
             message=request.message,
             system_prompt=request.system_prompt,
             session_id=request.session_id,
+            workspace_id=principal.workspace_id,
         ),
         media_type="text/event-stream",
         headers={
@@ -247,7 +251,7 @@ async def execute_tool(
         )
 
     try:
-        sdk = AgentMemoryClient(principal.user_id)
+        sdk = AgentMemoryClient(principal.user_id, principal.workspace_id)
         result_str = _handle_tool_call(sdk, tool_name, request.parameters)
         try:
             result = json.loads(result_str)

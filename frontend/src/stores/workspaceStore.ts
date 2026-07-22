@@ -37,6 +37,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   switchWorkspace: async (id: number) => {
+    // 切换到相同空间无需处理
+    if (get().currentWorkspaceId === id) {
+      return;
+    }
     try {
       await workspaceApi.switchWorkspace(id);
     } catch {
@@ -44,5 +48,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
     localStorage.setItem('current_workspace_id', String(id));
     set({ currentWorkspaceId: id });
+    // 刷新页面，确保所有页面使用新的 X-Workspace-Id 请求头重新拉取数据
+    window.location.reload();
   },
 }));

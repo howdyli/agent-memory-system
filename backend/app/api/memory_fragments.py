@@ -257,7 +257,8 @@ async def create_fragment_api(
             content=request.content,
             ttl=request.ttl,
             importance_score=request.importance_score or 0.5,
-            metadata=request.metadata
+            metadata=request.metadata,
+            workspace_id=principal.workspace_id
         )
         if result["success"]:
             return result
@@ -283,7 +284,8 @@ async def list_fragments_api(
             user_id=principal.user_id,
             fragment_type=fragment_type,
             limit=limit or 100,
-            offset=offset or 0
+            offset=offset or 0,
+            workspace_id=principal.workspace_id
         )
         if result["success"]:
             return result
@@ -303,7 +305,7 @@ async def get_fragment_api(
 ):
     """获取单个记忆片段"""
     try:
-        result = get_fragment(principal.user_id, fragment_id)
+        result = get_fragment(principal.user_id, fragment_id, principal.workspace_id)
         if result["success"]:
             return result
         else:
@@ -328,7 +330,8 @@ async def update_fragment_api(
             fragment_id=fragment_id,
             content=request.content,
             ttl=request.ttl,
-            importance_score=request.importance_score
+            importance_score=request.importance_score,
+            workspace_id=principal.workspace_id
         )
         if result["success"]:
             return result
@@ -348,7 +351,7 @@ async def delete_fragment_api(
 ):
     """删除记忆片段"""
     try:
-        result = delete_fragment(principal.user_id, fragment_id)
+        result = delete_fragment(principal.user_id, fragment_id, principal.workspace_id)
         if result["success"]:
             return result
         else:
@@ -370,7 +373,7 @@ async def batch_delete_fragments_api(
         deleted_count = 0
         failed_ids: List[int] = []
         for fid in request.fragment_ids:
-            result = delete_fragment(principal.user_id, fid)
+            result = delete_fragment(principal.user_id, fid, principal.workspace_id)
             if result.get("success"):
                 deleted_count += 1
             else:
@@ -394,7 +397,7 @@ async def cleanup_fragments_api(
 ):
     """清理过期的记忆片段"""
     try:
-        result = cleanup_expired_fragments(principal.user_id)
+        result = cleanup_expired_fragments(principal.user_id, principal.workspace_id)
         if result["success"]:
             return result
         else:
@@ -421,7 +424,8 @@ async def semantic_search_api(
             user_id=principal.user_id,
             query=request.query,
             top_k=request.top_k or 5,
-            threshold=request.threshold or 0.3
+            threshold=request.threshold or 0.3,
+            workspace_id=principal.workspace_id
         )
         if result["success"]:
             return result

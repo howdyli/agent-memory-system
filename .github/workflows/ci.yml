@@ -24,8 +24,8 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements_install.txt || true
-          pip install . || pip install -e . || true
+          pip install -r requirements.txt
+          pip install ../sdk-python/
           pip install pytest pytest-cov pytest-asyncio pytest-timeout ruff mypy
 
       - name: Lint (ruff)
@@ -34,7 +34,7 @@ jobs:
 
       - name: Type check (mypy)
         working-directory: backend
-        run: mypy app/ --ignore-missing-imports --no-strict-optional || true
+        run: mypy app/ --ignore-missing-imports --no-strict-optional
 
       - name: Test (pytest)
         working-directory: backend

@@ -259,6 +259,10 @@ def rebuild_fts_index() -> Dict[str, Any]:
     """
     try:
         db = get_db_client()
+        # 非 SQLite 后端（如 PostgreSQL）无 FTS5 虚拟表，直接返回空索引
+        if getattr(db, "dialect", "sqlite") != "sqlite":
+            return {"success": True, "total": 0,
+                    "message": "当前后端无 FTS5，关键词检索走 LIKE/ILIKE"}
         # 清空并重建
         try:
             db.execute("DELETE FROM fragments_fts")
@@ -316,6 +320,7 @@ def search_bm25(
     query: str,
     user_id: int,
     top_k: int = 20,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     使用 SQLite FTS5 BM25 算法进行全文搜索。
@@ -324,12 +329,25 @@ def search_bm25(
         query: 查询文本
         user_id: 用户 ID
         top_k: 返回 Top-K 结果
+        workspace_id: 工作空间 ID（None 回退到 workspace_id IS NULL）
 
     Returns:
         BM25 搜索结果列表
     """
     try:
         db = get_db_client()
+
+        # 非 SQLite 后端（如 PostgreSQL）无 FTS5：直接走 LIKE/ILIKE 关键词检索
+        if getattr(db, "dialect", "sqlite") != "sqlite":
+            fragments = _search_with_like(query, user_id, top_k, workspace_id)
+            logger.info(f"✓ BM25 搜索(LIKE 兜底): '{query}' -> {len(fragments)} 条")
+            return {
+                "success": True,
+                "fragments": fragments,
+                "count": len(fragments),
+                "query": query,
+                "backend": "like",
+            }
 
         # 检查 FTS5 表是否存在且有数据
         try:
@@ -353,19 +371,27 @@ def search_bm25(
         fts_query = _tokenize_query(query)
         has_cjk = _has_cjk(query)
 
+        # workspace 过滤（None 回退到 IS NULL）
+        if workspace_id is None:
+            ws_clause = "AND f.workspace_id IS NULL"
+            ws_params: tuple = ()
+        else:
+            ws_clause = "AND f.workspace_id = ?"
+            ws_params = (workspace_id,)
+
         # 尝试 FTS5 MATCH（英文关键词匹配）
         fragments = []
         try:
             rows = db.execute(
-                '''SELECT f.id, f.content, f.fragment_type, f.importance_score,
+                f'''SELECT f.id, f.content, f.fragment_type, f.importance_score,
                           f.created_at, f.user_id,
                           bm25(fragments_fts) as bm25_score
                    FROM fragments_fts
                    JOIN memory_fragments f ON fragments_fts.rowid = f.id
-                   WHERE fragments_fts MATCH ? AND f.user_id = ?
+                   WHERE fragments_fts MATCH ? AND f.user_id = ? {ws_clause}
                    ORDER BY bm25_score ASC
                    LIMIT ?''',
-                (fts_query, user_id, top_k)
+                (fts_query, user_id, *ws_params, top_k)
             )
             if rows:
                 for r in rows:
@@ -379,7 +405,7 @@ def search_bm25(
 
         # 如果 FTS5 返回结果少且查询包含中文，使用 LIKE 回退
         if len(fragments) < top_k and has_cjk:
-            keyword_fragments = _search_with_like(query, user_id, top_k)
+            keyword_fragments = _search_with_like(query, user_id, top_k, workspace_id)
             existing_ids = {f["id"] for f in fragments}
             for kf in keyword_fragments:
                 if kf["id"] not in existing_ids:
@@ -399,7 +425,7 @@ def search_bm25(
         return {"success": False, "error": str(e)}
 
 
-def _search_with_like(query: str, user_id: int, top_k: int) -> List[Dict[str, Any]]:
+def _search_with_like(query: str, user_id: int, top_k: int, workspace_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """
     使用 SQL LIKE 进行中文关键词匹配（FTS5 中文回退方案）。
 
@@ -415,6 +441,8 @@ def _search_with_like(query: str, user_id: int, top_k: int) -> List[Dict[str, An
     """
     try:
         db = get_db_client()
+        # LIKE 在 SQLite 下对 ASCII 大小写不敏感；PostgreSQL 需用 ILIKE 保持一致语义
+        like_op = "LIKE" if getattr(db, "dialect", "sqlite") == "sqlite" else "ILIKE"
 
         # 提取查询词（中文逐字符 bigram，英文按空格分割）
         terms = []
@@ -446,21 +474,28 @@ def _search_with_like(query: str, user_id: int, top_k: int) -> List[Dict[str, An
         for term in terms:
             if len(term) >= 1:
                 pattern = f"%{term}%"
-                conditions.append("f.content LIKE ?")
+                conditions.append(f"f.content {like_op} ?")
                 params.append(pattern)
 
         if not conditions:
             return []
 
         where_clause = " OR ".join(conditions)
+        # workspace 过滤（None 回退到 IS NULL）
+        if workspace_id is None:
+            ws_clause = "AND f.workspace_id IS NULL"
+            ws_params: tuple = ()
+        else:
+            ws_clause = "AND f.workspace_id = ?"
+            ws_params = (workspace_id,)
         rows = db.execute(
             f'''SELECT f.id, f.content, f.fragment_type, f.importance_score,
                        f.created_at, f.user_id
                 FROM memory_fragments f
-                WHERE f.user_id = ? AND ({where_clause})
+                WHERE f.user_id = ? {ws_clause} AND ({where_clause})
                 ORDER BY f.importance_score DESC
                 LIMIT ?''',
-            tuple(params) + (top_k,)
+            (user_id, *ws_params, *params[1:], top_k)
         )
 
         results = []
@@ -809,6 +844,7 @@ def hybrid_search(
             query=query,
             top_k=config["semantic_top_k"],
             threshold=0.1,  # 低阈值以扩大候选集
+            workspace_id=workspace_id,
         )
         semantic_map = {}  # id -> fragment
         if semantic_result.get("success"):
@@ -821,7 +857,7 @@ def hybrid_search(
         # ================================================================
         # 步骤 2: BM25 搜索 (FTS5)
         # ================================================================
-        bm25_result = search_bm25(query=query, user_id=user_id, top_k=config["bm25_top_k"])
+        bm25_result = search_bm25(query=query, user_id=user_id, top_k=config["bm25_top_k"], workspace_id=workspace_id)
         bm25_map = {}
         if bm25_result.get("success"):
             for frag in bm25_result.get("fragments", []):
@@ -840,11 +876,18 @@ def hybrid_search(
 
         # 从 DB 获取完整信息
         db = get_db_client()
+        # workspace 过滤（None 回退到 IS NULL）
+        if workspace_id is None:
+            _ws_clause = "AND workspace_id IS NULL"
+            _ws_params: tuple = ()
+        else:
+            _ws_clause = "AND workspace_id = ?"
+            _ws_params = (workspace_id,)
         fused_fragments = []
         for fid in all_ids:
             rows = db.execute(
-                'SELECT * FROM memory_fragments WHERE id = ?',
-                (int(fid),)
+                f'SELECT * FROM memory_fragments WHERE id = ? {_ws_clause}',
+                (int(fid), *_ws_params)
             )
             if rows:
                 frag = dict(rows[0])
@@ -1005,13 +1048,13 @@ def analyze_search(
         # 子搜索重叠分析
         semantic_ids: set = set()
         semantic_result = search_fragments_by_semantic(
-            user_id=user_id, query=query, top_k=config["semantic_top_k"], threshold=0.1
+            user_id=user_id, query=query, top_k=config["semantic_top_k"], threshold=0.1, workspace_id=workspace_id
         )
         if semantic_result.get("success"):
             semantic_ids = {f.get("id") for f in semantic_result.get("fragments", []) if f.get("id")}
 
         bm25_ids: set = set()
-        bm25_result = search_bm25(query=query, user_id=user_id, top_k=config["bm25_top_k"])
+        bm25_result = search_bm25(query=query, user_id=user_id, top_k=config["bm25_top_k"], workspace_id=workspace_id)
         if bm25_result.get("success"):
             bm25_ids = {f.get("id") for f in bm25_result.get("fragments", []) if f.get("id")}
 

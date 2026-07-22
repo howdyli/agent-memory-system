@@ -268,12 +268,51 @@ async def get_current_principal(
         )
 
     default_workspace_id, _ = _load_user_workspace_context(user_id)
+    # 优先使用请求头 X-Workspace-Id（校验成员资格后生效），否则回退到默认空间
+    effective_workspace_id = _resolve_workspace_from_header(
+        request, user_id, default_workspace_id
+    )
     return Principal(
         user_id=user_id,
-        workspace_id=default_workspace_id,
+        workspace_id=effective_workspace_id,
         scopes=[],  # JWT 用户默认全部权限（has_scope 返回 True）
         auth_method="jwt",
     )
+
+
+def _resolve_workspace_from_header(
+    request: Request, user_id: int, default_workspace_id: Optional[int]
+) -> Optional[int]:
+    """解析请求头 X-Workspace-Id。
+
+    仅当请求头存在、可转为 int、且用户是该 workspace 成员时才生效；
+    否则回退到 default_workspace_id，保持安全默认。
+    """
+    raw = request.headers.get("X-Workspace-Id")
+    if not raw:
+        return default_workspace_id
+    try:
+        requested_ws = int(raw)
+    except (TypeError, ValueError):
+        return default_workspace_id
+    if requested_ws == default_workspace_id:
+        return requested_ws
+    try:
+        from app.core.db_client import get_db_client
+        client = get_db_client()
+        rows = client.execute(
+            "SELECT 1 FROM workspace_members "
+            "WHERE workspace_id = ? AND user_id = ?",
+            (requested_ws, user_id),
+        )
+        if rows:
+            return requested_ws
+        logger.warning(
+            f"⚠️  用户 {user_id} 非 workspace {requested_ws} 成员，回退默认空间"
+        )
+    except Exception as e:
+        logger.warning(f"校验 X-Workspace-Id 成员资格失败（回退默认）: {e}")
+    return default_workspace_id
 
 
 async def _authenticate_api_key(raw_key: str) -> Optional[Principal]:

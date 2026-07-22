@@ -70,22 +70,31 @@ def _normalize_relation_type(relation_type: str) -> str:
     return RELATION_TYPE_MAP.get(relation_type, relation_type)
 
 
+def _ws_sql(workspace_id: Optional[int], col: str = "workspace_id") -> tuple:
+    """返回 (SQL 片段, 参数元组) 用于 workspace 过滤（None 回退到 IS NULL）"""
+    if workspace_id is None:
+        return f"{col} IS NULL", ()
+    return f"{col} = ?", (workspace_id,)
+
+
 def _ensure_graph_tables():
     """确保图谱相关表存在（首次使用保障）"""
     db = get_db_client()
     for sql in [
         '''CREATE TABLE IF NOT EXISTS graph_entities (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            workspace_id INTEGER,
             name TEXT NOT NULL, entity_type TEXT NOT NULL,
             aliases TEXT, metadata TEXT,
             first_seen_at TIMESTAMP, last_seen_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id),
-            UNIQUE(user_id, name, entity_type)
+            UNIQUE(user_id, workspace_id, name, entity_type)
         )''',
         '''CREATE TABLE IF NOT EXISTS graph_relationships (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            workspace_id INTEGER,
             source_entity_id INTEGER NOT NULL, target_entity_id INTEGER NOT NULL,
             relation_type TEXT NOT NULL, relation_subtype TEXT,
             properties TEXT, confidence REAL DEFAULT 0.5,
@@ -152,10 +161,11 @@ def ensure_entity(
         now = datetime.now().isoformat()
 
         # 尝试查找现有实体
+        ws_sql, ws_params = _ws_sql(workspace_id)
         rows = db.execute(
-            '''SELECT * FROM graph_entities
-               WHERE user_id = ? AND name = ? AND entity_type = ?''',
-            (user_id, name, entity_type)
+            f'''SELECT * FROM graph_entities
+               WHERE user_id = ? AND name = ? AND entity_type = ? AND {ws_sql}''',
+            (user_id, name, entity_type, *ws_params)
         )
 
         if rows:
@@ -189,9 +199,9 @@ def ensure_entity(
 
         entity_id = db.execute(
             '''INSERT INTO graph_entities
-               (user_id, name, entity_type, aliases, metadata, first_seen_at, last_seen_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)''',
-            (user_id, name, entity_type, aliases_json, metadata_json, now, now)
+               (user_id, workspace_id, name, entity_type, aliases, metadata, first_seen_at, last_seen_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (user_id, workspace_id, name, entity_type, aliases_json, metadata_json, now, now)
         )
 
         logger.info(f"✓ 创建实体: {name} ({entity_type}) id={entity_id}")
@@ -240,20 +250,21 @@ def search_entities(
         _ensure_graph_tables()
         db = get_db_client()
         like_pattern = f"%{query}%"
+        ws_sql, ws_params = _ws_sql(workspace_id)
 
         if entity_type:
             rows = db.execute(
-                '''SELECT * FROM graph_entities
-                   WHERE user_id = ? AND entity_type = ? AND name LIKE ?
+                f'''SELECT * FROM graph_entities
+                   WHERE user_id = ? AND {ws_sql} AND entity_type = ? AND name LIKE ?
                    ORDER BY last_seen_at DESC LIMIT ?''',
-                (user_id, entity_type, like_pattern, limit)
+                (user_id, *ws_params, entity_type, like_pattern, limit)
             )
         else:
             rows = db.execute(
-                '''SELECT * FROM graph_entities
-                   WHERE user_id = ? AND name LIKE ?
+                f'''SELECT * FROM graph_entities
+                   WHERE user_id = ? AND {ws_sql} AND name LIKE ?
                    ORDER BY last_seen_at DESC LIMIT ?''',
-                (user_id, like_pattern, limit)
+                (user_id, *ws_params, like_pattern, limit)
             )
 
         entities = [dict(r) for r in rows] if rows else []
@@ -289,8 +300,8 @@ def get_entity(
         db = get_db_client()
 
         rows = db.execute(
-            '''SELECT * FROM graph_entities WHERE id = ? AND user_id = ?''',
-            (entity_id, user_id)
+            f'''SELECT * FROM graph_entities WHERE id = ? AND user_id = ? AND {_ws_sql(workspace_id)[0]}''',
+            (entity_id, user_id, *_ws_sql(workspace_id)[1])
         )
         if not rows:
             return {"success": False, "error": "实体未找到"}
@@ -353,9 +364,10 @@ def merge_entities(
             return {"success": False, "error": "目标实体不能在源列表中"}
 
         # 检查目标实体是否存在
+        ws_sql, ws_params = _ws_sql(workspace_id)
         rows = db.execute(
-            'SELECT * FROM graph_entities WHERE id = ? AND user_id = ?',
-            (target_id, user_id)
+            f'SELECT * FROM graph_entities WHERE id = ? AND user_id = ? AND {ws_sql}',
+            (target_id, user_id, *ws_params)
         )
         if not rows:
             return {"success": False, "error": "目标实体未找到"}
@@ -465,11 +477,11 @@ def add_relationship(
         db = get_db_client()
 
         # 1. 确保两个实体存在
-        src_result = ensure_entity(user_id, source_name, source_type)
+        src_result = ensure_entity(user_id, source_name, source_type, workspace_id=workspace_id)
         if not src_result.get("id"):
             return {"success": False, "error": f"源实体创建失败: {src_result.get('error')}"}
 
-        tgt_result = ensure_entity(user_id, target_name, target_type)
+        tgt_result = ensure_entity(user_id, target_name, target_type, workspace_id=workspace_id)
         if not tgt_result.get("id"):
             return {"success": False, "error": f"目标实体创建失败: {tgt_result.get('error')}"}
 
@@ -504,11 +516,11 @@ def add_relationship(
         # 3. 创建关系
         rel_id = db.execute(
             '''INSERT INTO graph_relationships
-               (user_id, source_entity_id, target_entity_id, relation_type,
+               (user_id, workspace_id, source_entity_id, target_entity_id, relation_type,
                 relation_subtype, properties, confidence, valid_from,
                 extraction_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-            (user_id, source_id, target_id, normalized_type,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (user_id, workspace_id, source_id, target_id, normalized_type,
              relation_subtype, properties_json, confidence,
              valid_from or now, extraction_source)
         )
@@ -569,8 +581,8 @@ def deactivate_relationship(
         now = datetime.now().isoformat()
 
         rows = db.execute(
-            '''SELECT * FROM graph_relationships WHERE id = ? AND user_id = ?''',
-            (relationship_id, user_id)
+            f'''SELECT * FROM graph_relationships WHERE id = ? AND user_id = ? AND {_ws_sql(workspace_id)[0]}''',
+            (relationship_id, user_id, *_ws_sql(workspace_id)[1])
         )
         if not rows:
             return {"success": False, "error": "关系未找到"}
@@ -637,8 +649,8 @@ def update_relationship(
         now = datetime.now().isoformat()
 
         rows = db.execute(
-            '''SELECT * FROM graph_relationships WHERE id = ? AND user_id = ?''',
-            (relationship_id, user_id)
+            f'''SELECT * FROM graph_relationships WHERE id = ? AND user_id = ? AND {_ws_sql(workspace_id)[0]}''',
+            (relationship_id, user_id, *_ws_sql(workspace_id)[1])
         )
         if not rows:
             return {"success": False, "error": "关系未找到"}
@@ -723,15 +735,16 @@ def get_relationship_history(
         db = get_db_client()
 
         # 查找两个实体
+        ws_sql, ws_params = _ws_sql(workspace_id)
         e1 = db.execute(
-            '''SELECT id FROM graph_entities
-               WHERE user_id = ? AND name = ? AND entity_type = ?''',
-            (user_id, entity1_name, entity1_type)
+            f'''SELECT id FROM graph_entities
+               WHERE user_id = ? AND name = ? AND entity_type = ? AND {ws_sql}''',
+            (user_id, entity1_name, entity1_type, *ws_params)
         )
         e2 = db.execute(
-            '''SELECT id FROM graph_entities
-               WHERE user_id = ? AND name = ? AND entity_type = ?''',
-            (user_id, entity2_name, entity2_type)
+            f'''SELECT id FROM graph_entities
+               WHERE user_id = ? AND name = ? AND entity_type = ? AND {ws_sql}''',
+            (user_id, entity2_name, entity2_type, *ws_params)
         )
 
         if not e1 or not e2:
@@ -819,11 +832,12 @@ def get_neighbors(
         db = get_db_client()
 
         # 1. 查找实体 — 优先按 ID 查找，否则按 name+type 查找
+        ws_sql, ws_params = _ws_sql(workspace_id)
         if entity_id is not None:
             rows = db.execute(
-                '''SELECT id, name FROM graph_entities
-                   WHERE user_id = ? AND id = ?''',
-                (user_id, entity_id)
+                f'''SELECT id, name FROM graph_entities
+                   WHERE user_id = ? AND id = ? AND {ws_sql}''',
+                (user_id, entity_id, *ws_params)
             )
             if not rows:
                 return {"success": True, "neighbors": [], "message": f"实体 ID={entity_id} 不存在"}
@@ -832,9 +846,9 @@ def get_neighbors(
             if not entity_name:
                 return {"success": False, "error": "必须提供 entity_id 或 entity_name"}
             rows = db.execute(
-                '''SELECT id FROM graph_entities
-                   WHERE user_id = ? AND name = ? AND entity_type = ?''',
-                (user_id, entity_name, entity_type)
+                f'''SELECT id FROM graph_entities
+                   WHERE user_id = ? AND name = ? AND entity_type = ? AND {ws_sql}''',
+                (user_id, entity_name, entity_type, *ws_params)
             )
             if not rows:
                 return {"success": True, "neighbors": [], "message": f"实体 '{entity_name}' 不存在"}
@@ -967,6 +981,10 @@ def list_relationships(
         conditions = ["r.user_id = ?"]
         params = [user_id]
 
+        ws_sql, ws_params = _ws_sql(workspace_id, col="r.workspace_id")
+        conditions.append(ws_sql)
+        params.extend(ws_params)
+
         if source_name:
             conditions.append("e1.name LIKE ?")
             params.append(f"%{source_name}%")
@@ -1038,6 +1056,7 @@ def get_entity_graph_text(
         entity_name=center_entity,
         entity_type=entity_type,
         depth=max_depth,
+        workspace_id=workspace_id,
     )
 
     if not result.get("success") or not result.get("neighbors"):
@@ -1221,6 +1240,7 @@ def extract_entities_from_text(
                 name=ent["name"],
                 entity_type=ent["type"],
                 aliases=ent.get("aliases"),
+                workspace_id=workspace_id,
             )
             stored["entities"] += 1
         except Exception as e:
@@ -1237,6 +1257,7 @@ def extract_entities_from_text(
                 target_type=_guess_entity_type(rel["target"], text),
                 confidence=rel.get("confidence", 0.5),
                 extraction_source="auto_extract",
+                workspace_id=workspace_id,
             )
             stored["relationships"] += 1
         except Exception as e:
@@ -1279,6 +1300,7 @@ def _guess_entity_type(name: str, context: str = "") -> str:
 def query_graph(
     user_id: int,
     query: str,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     自然语言图查询。
@@ -1314,6 +1336,7 @@ def query_graph(
                 entity_name=entities[0],
                 entity_type="person",
                 relation_type=relation_type,
+                workspace_id=workspace_id,
             )
 
         elif query_type == "history":
@@ -1323,12 +1346,14 @@ def query_graph(
                     user_id=user_id,
                     entity1_name=entities[0],
                     entity2_name=entities[1],
+                    workspace_id=workspace_id,
                 )
             else:
                 graph_text = get_entity_graph_text(
                     user_id=user_id,
                     center_entity=entities[0],
                     max_depth=2,
+                    workspace_id=workspace_id,
                 )
                 return {
                     "success": True,
@@ -1343,6 +1368,7 @@ def query_graph(
                 user_id=user_id,
                 center_entity=entities[0],
                 max_depth=2,
+                workspace_id=workspace_id,
             )
             return {
                 "success": True,
@@ -1353,7 +1379,7 @@ def query_graph(
 
         else:
             # 默认：搜索实体
-            return search_entities(user_id=user_id, query=entities[0])
+            return search_entities(user_id=user_id, query=entities[0], workspace_id=workspace_id)
 
     except Exception as e:
         logger.error(f"✗ 图查询失败: {e}")
@@ -1690,6 +1716,7 @@ def _levenshtein_distance(s1: str, s2: str) -> int:
 def detect_duplicate_entities(
     user_id: int,
     threshold: int = 3,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     检测相似实体（基于名称编辑距离）。
@@ -1706,9 +1733,9 @@ def detect_duplicate_entities(
         db = get_db_client()
 
         rows = db.execute(
-            '''SELECT id, name, entity_type FROM graph_entities
-               WHERE user_id = ? ORDER BY name''',
-            (user_id,)
+            f'''SELECT id, name, entity_type FROM graph_entities
+               WHERE user_id = ? AND {_ws_sql(workspace_id)[0]} ORDER BY name''',
+            (user_id, *_ws_sql(workspace_id)[1])
         )
         entities = [dict(r) for r in rows] if rows else []
 
@@ -1749,6 +1776,7 @@ def detect_duplicate_entities(
 def delete_entity(
     user_id: int,
     entity_id: int,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     删除实体及其所有关系。
@@ -1764,9 +1792,10 @@ def delete_entity(
         _ensure_graph_tables()
         db = get_db_client()
 
+        ws_sql, ws_params = _ws_sql(workspace_id)
         rows = db.execute(
-            'SELECT * FROM graph_entities WHERE id = ? AND user_id = ?',
-            (entity_id, user_id)
+            f'SELECT * FROM graph_entities WHERE id = ? AND user_id = ? AND {ws_sql}',
+            (entity_id, user_id, *ws_params)
         )
         if not rows:
             return {"success": False, "error": "实体未找到"}
@@ -1795,6 +1824,7 @@ def update_entity(
     name: Optional[str] = None,
     entity_type: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     更新实体信息。
@@ -1814,8 +1844,8 @@ def update_entity(
         db = get_db_client()
 
         rows = db.execute(
-            'SELECT * FROM graph_entities WHERE id = ? AND user_id = ?',
-            (entity_id, user_id)
+            f'SELECT * FROM graph_entities WHERE id = ? AND user_id = ? AND {_ws_sql(workspace_id)[0]}',
+            (entity_id, user_id, *_ws_sql(workspace_id)[1])
         )
         if not rows:
             return {"success": False, "error": "实体未找到"}
@@ -1851,7 +1881,7 @@ def update_entity(
         return {"success": False, "error": str(e)}
 
 
-def get_graph_statistics(user_id: int) -> Dict[str, Any]:
+def get_graph_statistics(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取用户的知识图谱统计信息。
 
@@ -1867,50 +1897,53 @@ def get_graph_statistics(user_id: int) -> Dict[str, Any]:
     """
     try:
         db = get_db_client()
+        ws_e, ws_ep = _ws_sql(workspace_id, col="workspace_id")
+        ws_r, ws_rp = _ws_sql(workspace_id, col="workspace_id")
+        now_iso = datetime.now().isoformat()
 
         # 实体总数
         entity_rows = db.execute(
-            'SELECT COUNT(*) as cnt FROM graph_entities WHERE user_id = ?',
-            (user_id,)
+            f'SELECT COUNT(*) as cnt FROM graph_entities WHERE user_id = ? AND {ws_e}',
+            (user_id, *ws_ep)
         )
         entity_count = dict(entity_rows[0])["cnt"] if entity_rows else 0
 
         # 关系总数（仅活跃）
         rel_rows = db.execute(
-            '''SELECT COUNT(*) as cnt FROM graph_relationships
-               WHERE user_id = ? AND (valid_to IS NULL OR valid_to > ?)''',
-            (user_id, datetime.now().isoformat())
+            f'''SELECT COUNT(*) as cnt FROM graph_relationships
+               WHERE user_id = ? AND {ws_r} AND (valid_to IS NULL OR valid_to > ?)''',
+            (user_id, *ws_rp, now_iso)
         )
         relationship_count = dict(rel_rows[0])["cnt"] if rel_rows else 0
 
         # 按实体类型统计
         type_rows = db.execute(
-            'SELECT entity_type, COUNT(*) as cnt FROM graph_entities WHERE user_id = ? GROUP BY entity_type',
-            (user_id,)
+            f'SELECT entity_type, COUNT(*) as cnt FROM graph_entities WHERE user_id = ? AND {ws_e} GROUP BY entity_type',
+            (user_id, *ws_ep)
         )
         entity_types = {dict(r)["entity_type"]: dict(r)["cnt"] for r in (type_rows or [])}
 
         # 按关系类型统计
         rtype_rows = db.execute(
-            '''SELECT relation_type, COUNT(*) as cnt FROM graph_relationships
-               WHERE user_id = ? AND (valid_to IS NULL OR valid_to > ?)
+            f'''SELECT relation_type, COUNT(*) as cnt FROM graph_relationships
+               WHERE user_id = ? AND {ws_r} AND (valid_to IS NULL OR valid_to > ?)
                GROUP BY relation_type''',
-            (user_id, datetime.now().isoformat())
+            (user_id, *ws_rp, now_iso)
         )
         relationship_types = {dict(r)["relation_type"]: dict(r)["cnt"] for r in (rtype_rows or [])}
 
         # Top 10 最连接的实体
         top_rows = db.execute(
-            '''SELECT e.id, e.name, e.entity_type,
+            f'''SELECT e.id, e.name, e.entity_type,
                       (SELECT COUNT(*) FROM graph_relationships r
                        WHERE r.user_id = e.user_id
                        AND (r.source_entity_id = e.id OR r.target_entity_id = e.id)
                        AND (r.valid_to IS NULL OR r.valid_to > ?)) as relation_count
                FROM graph_entities e
-               WHERE e.user_id = ?
+               WHERE e.user_id = ? AND {_ws_sql(workspace_id, col="e.workspace_id")[0]}
                ORDER BY relation_count DESC
                LIMIT 10''',
-            (datetime.now().isoformat(), user_id)
+            (now_iso, user_id, *_ws_sql(workspace_id)[1])
         )
         top_entities = [dict(r) for r in (top_rows or [])]
 

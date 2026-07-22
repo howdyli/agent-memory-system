@@ -402,6 +402,7 @@ def _handle_tool_call(sdk: AgentMemoryClient, tool_name: str, arguments: Dict[st
                 entity_type=arguments.get("entity_type", "person"),
                 aliases=arguments.get("aliases"),
                 metadata=arguments.get("metadata"),
+                workspace_id=sdk.workspace_id,
             )
             return json.dumps(result, ensure_ascii=False, default=str)
 
@@ -415,6 +416,7 @@ def _handle_tool_call(sdk: AgentMemoryClient, tool_name: str, arguments: Dict[st
                 target_type=arguments.get("target_type", "organization"),
                 confidence=arguments.get("confidence", 0.8),
                 extraction_source="agent_tool",
+                workspace_id=sdk.workspace_id,
             )
             return json.dumps(result, ensure_ascii=False, default=str)
 
@@ -424,6 +426,7 @@ def _handle_tool_call(sdk: AgentMemoryClient, tool_name: str, arguments: Dict[st
                 query=arguments.get("query", ""),
                 entity_type=arguments.get("entity_type"),
                 limit=arguments.get("limit", 10),
+                workspace_id=sdk.workspace_id,
             )
             return json.dumps(result, ensure_ascii=False, default=str)
 
@@ -434,6 +437,7 @@ def _handle_tool_call(sdk: AgentMemoryClient, tool_name: str, arguments: Dict[st
                 entity_type=arguments.get("entity_type", "person"),
                 relation_type=arguments.get("relation_type"),
                 depth=arguments.get("depth", 1),
+                workspace_id=sdk.workspace_id,
             )
             return json.dumps(result, ensure_ascii=False, default=str)
 
@@ -441,6 +445,7 @@ def _handle_tool_call(sdk: AgentMemoryClient, tool_name: str, arguments: Dict[st
             result = gm.query_graph(
                 user_id=sdk.user_id,
                 query=arguments.get("query", ""),
+                workspace_id=sdk.workspace_id,
             )
             return json.dumps(result, ensure_ascii=False, default=str)
 
@@ -448,6 +453,7 @@ def _handle_tool_call(sdk: AgentMemoryClient, tool_name: str, arguments: Dict[st
             result = gm.extract_entities_from_text(
                 user_id=sdk.user_id,
                 text=arguments.get("text", ""),
+                workspace_id=sdk.workspace_id,
             )
             return json.dumps(result, ensure_ascii=False, default=str)
 
@@ -506,6 +512,7 @@ def memory_aware_chat(
     system_prompt: Optional[str] = None,
     session_id: Optional[str] = None,
     max_tool_rounds: int = 5,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     记忆感知的 Agent 对话循环。
@@ -533,7 +540,7 @@ def memory_aware_chat(
             "memory_context_used": True/False
         }
     """
-    sdk = AgentMemoryClient(user_id)
+    sdk = AgentMemoryClient(user_id, workspace_id)
     all_tool_calls: List[Dict[str, Any]] = []
     memory_context_used = False
 
@@ -713,6 +720,7 @@ def memory_aware_chat_stream(
     system_prompt: Optional[str] = None,
     session_id: Optional[str] = None,
     max_tool_rounds: int = 5,
+    workspace_id: Optional[int] = None,
 ) -> Generator[Dict[str, Any], None, None]:
     """
     记忆感知的流式 Agent 对话循环。
@@ -730,7 +738,7 @@ def memory_aware_chat_stream(
         - done: 完成信号
         - error: 错误信息
     """
-    sdk = AgentMemoryClient(user_id)
+    sdk = AgentMemoryClient(user_id, workspace_id)
     all_tool_calls: List[Dict[str, Any]] = []
     memory_context_used = False
 

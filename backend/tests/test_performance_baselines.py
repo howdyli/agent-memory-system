@@ -125,3 +125,159 @@ class TestErrorResponsePerformance:
         print(f"\n[错误响应构造] p50={_percentile(samples,50):.4f}ms "
               f"p99={p99:.4f}ms (阈值 {threshold:.1f}ms)")
         assert p99 < threshold, f"错误响应构造 p99={p99:.4f}ms 超过阈值 {threshold:.1f}ms"
+
+
+# ============================================================
+# 4. 混合搜索 p99 < 100ms
+# ============================================================
+
+class TestHybridSearchPerformance:
+    """混合搜索引擎性能基准：模拟100条片段下的检索延迟"""
+
+    def test_hybrid_search_p99(self):
+        """混合搜索 p99 应 < 100ms（基于 BM25 文本匹配模拟）"""
+        from app.core.db_client import get_db_client
+        db = get_db_client()
+        user_id = 998  # 专用性能测试用户
+
+        # 预置100条测试记忆片段
+        for i in range(100):
+            db.execute(
+                "INSERT OR IGNORE INTO memory_fragments (user_id, content, category, importance_score) VALUES (?, ?, ?, ?)",
+                (user_id, f"Performance test memory fragment number {i} about topic {i % 10}", "test", 0.5 + (i % 5) * 0.1)
+            )
+
+        def search_cycle():
+            """执行一次文本检索（模拟 BM25 路径）"""
+            db.execute(
+                "SELECT * FROM memory_fragments WHERE user_id = ? AND content LIKE ? ORDER BY importance_score DESC LIMIT 10",
+                (user_id, "%topic 5%")
+            )
+
+        samples = _measure(search_cycle, iterations=200)
+        p99 = _percentile(samples, 99)
+        threshold = 100.0 * PERF_SCALE
+
+        # 清理
+        db.execute("DELETE FROM memory_fragments WHERE user_id = ?", (user_id,))
+
+        print(f"\n[混合搜索] p50={_percentile(samples, 50):.3f}ms "
+              f"p99={p99:.3f}ms (阈值 {threshold:.0f}ms)")
+        assert p99 < threshold, f"混合搜索 p99={p99:.3f}ms 超过阈值 {threshold:.0f}ms"
+
+
+# ============================================================
+# 5. 并发负载 p99 < 200ms
+# ============================================================
+
+class TestConcurrentLoadPerformance:
+    """并发读写混合负载性能基准"""
+
+    def test_concurrent_mixed_load_p99(self):
+        """10并发读 + 2并发写混合负载，整体 p99 < 200ms"""
+        import concurrent.futures
+        from app.core.db_client import get_db_client
+
+        db = get_db_client()
+        user_id = 997
+
+        # 预置数据
+        for i in range(50):
+            db.create_memory_variable(user_id, f"conc_key_{i}", {"v": i})
+
+        samples: list = []
+
+        def read_op():
+            start = time.perf_counter()
+            db.get_memory_variable(user_id, f"conc_key_{hash(time.perf_counter()) % 50}")
+            return (time.perf_counter() - start) * 1000.0
+
+        def write_op():
+            start = time.perf_counter()
+            db.create_memory_variable(user_id, f"conc_w_{int(time.perf_counter()*1000) % 100}", {"v": 1})
+            return (time.perf_counter() - start) * 1000.0
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
+            futures = []
+            for _ in range(100):  # 100轮
+                # 10个读 + 2个写
+                for _ in range(10):
+                    futures.append(executor.submit(read_op))
+                for _ in range(2):
+                    futures.append(executor.submit(write_op))
+
+            for f in concurrent.futures.as_completed(futures):
+                try:
+                    samples.append(f.result())
+                except Exception:
+                    pass
+
+        p99 = _percentile(samples, 99)
+        threshold = 200.0 * PERF_SCALE
+
+        # 清理
+        db.execute("DELETE FROM memory_variables WHERE user_id = ?", (user_id,))
+
+        print(f"\n[并发混合负载] 总操作={len(samples)} p50={_percentile(samples, 50):.3f}ms "
+              f"p99={p99:.3f}ms (阈值 {threshold:.0f}ms)")
+        assert p99 < threshold, f"并发混合负载 p99={p99:.3f}ms 超过阈值 {threshold:.0f}ms"
+
+    def test_memory_stability_1k_ops(self):
+        """1000次连续操作内存增长 < 20MB"""
+        import tracemalloc
+        from app.core.db_client import get_db_client
+
+        db = get_db_client()
+        user_id = 996
+
+        tracemalloc.start()
+        baseline = tracemalloc.get_traced_memory()[0]
+
+        for i in range(1000):
+            key = f"stability_{i % 100}"
+            db.create_memory_variable(user_id, key, {"iteration": i, "data": "x" * 100})
+            db.get_memory_variable(user_id, key)
+
+        current = tracemalloc.get_traced_memory()[0]
+        tracemalloc.stop()
+        growth_mb = (current - baseline) / (1024 * 1024)
+
+        # 清理
+        db.execute("DELETE FROM memory_variables WHERE user_id = ?", (user_id,))
+
+        print(f"\n[内存稳定性] 1000次操作后内存增长: {growth_mb:.2f}MB (阈值 20MB)")
+        assert growth_mb < 20.0, f"内存增长 {growth_mb:.2f}MB 超过 20MB 阈值"
+
+
+# ============================================================
+# 6. 吞吐量 > 100 ops/sec
+# ============================================================
+
+class TestThroughputBaseline:
+    """吞吐量基准：验证系统持续处理能力"""
+
+    def test_crud_throughput(self):
+        """记忆变量 CRUD 吞吐量应 > 100 ops/sec"""
+        from app.core.db_client import get_db_client
+        db = get_db_client()
+        user_id = 995
+
+        duration_seconds = 5  # 测试持续时间
+        ops_count = 0
+        start_time = time.perf_counter()
+
+        while (time.perf_counter() - start_time) < duration_seconds:
+            key = f"throughput_{ops_count % 200}"
+            db.create_memory_variable(user_id, key, {"n": ops_count})
+            db.get_memory_variable(user_id, key)
+            ops_count += 2  # create + get = 2 ops
+
+        elapsed = time.perf_counter() - start_time
+        qps = ops_count / elapsed
+        min_qps = 100.0 / PERF_SCALE  # 放宽系数反向应用
+
+        # 清理
+        db.execute("DELETE FROM memory_variables WHERE user_id = ?", (user_id,))
+
+        print(f"\n[吞吐量] {ops_count} ops in {elapsed:.2f}s = {qps:.1f} ops/sec (最低要求 {min_qps:.0f} ops/sec)")
+        assert qps > min_qps, f"吞吐量 {qps:.1f} ops/sec 低于最低要求 {min_qps:.0f} ops/sec"

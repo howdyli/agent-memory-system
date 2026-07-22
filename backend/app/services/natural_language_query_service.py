@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 logger = logging.getLogger(__name__)
 
 from app.core.db_client import get_db_client
-from app.services.memory_table_service import get_table_info, list_tables
+from app.services.memory_table_service import get_table_info, list_tables, _physical_table
 from app.services.sql_safety import (
     validate_sql_safety as _validate_sql_safety,
     pre_check_sql,
@@ -62,7 +62,8 @@ def sanitize_table_name(table_name: str) -> str:
 # 自然语言转 SQL
 # ============================================================
 
-def natural_language_to_sql(user_id: int, question: str) -> Dict[str, Any]:
+def natural_language_to_sql(user_id: int, question: str,
+                            workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     将自然语言问题转换为 SQL 查询
     
@@ -80,7 +81,7 @@ def natural_language_to_sql(user_id: int, question: str) -> Dict[str, Any]:
         question = question.strip()
         
         # 1. 获取用户所有表信息
-        tables_result = list_tables(user_id)
+        tables_result = list_tables(user_id, workspace_id)
         if not tables_result["success"] or tables_result["count"] == 0:
             return {
                 "success": False,
@@ -127,7 +128,7 @@ def natural_language_to_sql(user_id: int, question: str) -> Dict[str, Any]:
         
         table_name = matched_table["table_name"]
         field_names = [f.get("name", "") for f in matched_fields]
-        actual_table_name = f"memory_{user_id}_{sanitize_table_name(table_name)}"
+        actual_table_name = _physical_table(user_id, sanitize_table_name(table_name), workspace_id)
         
         # 3. 解析查询条件
         conditions = []
@@ -258,7 +259,8 @@ def execute_safe_query(user_id: int, sql: str) -> Dict[str, Any]:
     return execute_confirmed_sql(user_id, sql)
 
 
-def natural_language_to_sql_only(user_id: int, question: str) -> Dict[str, Any]:
+def natural_language_to_sql_only(user_id: int, question: str,
+                                 workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     仅将自然语言转换为 SQL，不执行。
 
@@ -273,7 +275,7 @@ def natural_language_to_sql_only(user_id: int, question: str) -> Dict[str, Any]:
         或 {"success": False, "error": str}
     """
     try:
-        nl_result = natural_language_to_sql(user_id, question)
+        nl_result = natural_language_to_sql(user_id, question, workspace_id)
         if not nl_result["success"]:
             return nl_result
 
@@ -365,7 +367,8 @@ def execute_confirmed_sql(user_id: int, sql: str) -> Dict[str, Any]:
         }
 
 
-def natural_language_query(user_id: int, question: str) -> Dict[str, Any]:
+def natural_language_query(user_id: int, question: str,
+                           workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     自然语言查询完整流程
     
@@ -380,7 +383,7 @@ def natural_language_query(user_id: int, question: str) -> Dict[str, Any]:
     """
     try:
         # 1. 自然语言转 SQL
-        nl_result = natural_language_to_sql(user_id, question)
+        nl_result = natural_language_to_sql(user_id, question, workspace_id)
         
         if not nl_result["success"]:
             return nl_result

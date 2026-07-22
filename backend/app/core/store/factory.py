@@ -61,8 +61,13 @@ def get_vector_store(name: Optional[str] = None) -> VectorStore:
     Args:
         name: 后端名（默认按 VECTOR_BACKEND 配置）。
     """
+    settings = get_settings()
     if name is None:
-        name = get_settings().VECTOR_BACKEND
+        name = settings.VECTOR_BACKEND
+
+    if name.lower() == "chroma":
+        logger.info(f"✓ 实例化 VectorStore 后端: chroma (dir={settings.CHROMA_PERSIST_DIR})")
+        return ChromaVectorStore(persist_directory=settings.CHROMA_PERSIST_DIR)
 
     factory = _VECTOR_MAP.get(name.lower())
     if factory is None:

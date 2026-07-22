@@ -1146,7 +1146,7 @@ def find_duplicates(
         重复检测结果
     """
     try:
-        result = list_fragments(user_id, limit=200)
+        result = list_fragments(user_id, limit=200, workspace_id=workspace_id)
         all_fragments = result.get("fragments", [])
 
         duplicates = []
@@ -1202,7 +1202,7 @@ def detect_conflicts(
         冲突检测结果（包含持久化的 conflict_id）
     """
     try:
-        existing = get_memory_variable(user_id, key)
+        existing = get_memory_variable(user_id, key, workspace_id=workspace_id)
         if existing is None:
             return {"success": True, "conflict": False,
                     "message": "无现有值，无冲突"}
@@ -1218,7 +1218,7 @@ def detect_conflicts(
         similarity = _text_similarity(existing_str, new_str)
 
         # 也检查是否有其他变量引用了相同实体
-        all_vars = list_memory_variables(user_id)
+        all_vars = list_memory_variables(user_id, workspace_id=workspace_id)
         related_conflicts = []
         if isinstance(all_vars, dict):
             for k, v in all_vars.items():
@@ -1300,7 +1300,7 @@ def merge_memories(
         # 1. 收集源记忆的原始内容（用于审计）
         old_values = []
         for sid in source_ids:
-            frag_result = get_fragment(user_id, sid)
+            frag_result = get_fragment(user_id, sid, workspace_id=workspace_id)
             if frag_result.get("success"):
                 old_values.append({
                     "id": sid,
@@ -1313,9 +1313,17 @@ def merge_memories(
             user_id=user_id,
             fragment_id=first_id,
             content=target_content,
+            workspace_id=workspace_id,
         )
 
         # 3. 将其他源记忆标记为 archived
+        # workspace 过滤（None 回退到 IS NULL）
+        if workspace_id is None:
+            _ws_clause = "AND workspace_id IS NULL"
+            _ws_params: tuple = ()
+        else:
+            _ws_clause = "AND workspace_id = ?"
+            _ws_params = (workspace_id,)
         for sid in source_ids[1:]:
             _upsert_lifecycle(
                 user_id=user_id,
@@ -1326,9 +1334,9 @@ def merge_memories(
                 cold_reason="merged",
             )
             db.execute(
-                '''UPDATE memory_fragments SET lifecycle_status = 'archived'
-                   WHERE id = ?''',
-                (sid,)
+                f'''UPDATE memory_fragments SET lifecycle_status = 'archived'
+                   WHERE id = ? {_ws_clause}''',
+                (sid, *_ws_params)
             )
 
         # 4. 记录合并审计日志
@@ -1445,7 +1453,7 @@ def resolve_conflict(
                 key = None
 
         if key:
-            set_memory_variable(user_id, key, final_value)
+            set_memory_variable(user_id, key, final_value, workspace_id=workspace_id)
 
         now = datetime.now().isoformat()
         merge_action = f"resolved:{normalized}"

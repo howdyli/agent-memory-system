@@ -385,6 +385,7 @@ async def find_duplicates_api(
             content=request.content,
             threshold=request.threshold,
             limit=request.limit,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -407,6 +408,7 @@ async def merge_memories_api(
             source_ids=request.source_ids,
             target_content=request.target_content,
             target_type=request.target_type,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -428,6 +430,7 @@ async def detect_conflicts_api(
             user_id=principal.user_id,
             key=request.key,
             new_value=request.new_value,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -444,7 +447,7 @@ async def list_conflicts_api(
 ):
     """列出待处理的冲突"""
     try:
-        result = list_pending_conflicts(principal.user_id)
+        result = list_pending_conflicts(principal.user_id, workspace_id=principal.workspace_id)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result
@@ -468,6 +471,7 @@ async def resolve_conflict_api(
             conflict_id=request.conflict_id,
             resolution=request.resolution,
             merged_value=request.merged_value,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -491,6 +495,7 @@ async def resolve_conflict_by_id_api(
             conflict_id=conflict_id,
             resolution=request.resolution,
             merged_value=request.merged_value,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
