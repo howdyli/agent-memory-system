@@ -6,7 +6,7 @@
 - /health/ready: 检查所有依赖组件是否可用
 - /health: 保留原有兼容端点
 """
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Response, status
 
@@ -65,7 +65,7 @@ async def readiness(response: Response):
     return {
         "status": "ready" if all_ok else "not_ready",
         "checks": checks,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -74,6 +74,6 @@ async def health_check():
     """兼容原有健康检查端点"""
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "agent-memory-backend",
     }

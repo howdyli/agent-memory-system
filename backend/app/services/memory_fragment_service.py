@@ -7,6 +7,7 @@ import logging
 import json
 import re
 import os
+import asyncio
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 
@@ -294,7 +295,7 @@ DEFAULT_EXTRACTION_PROMPTS = {
 }
 
 # 用户自定义 Prompt 模板存储（SQLite）
-def _get_prompt_store_table():
+def _get_prompt_store_table() -> None:
     """确保 Prompt 模板存储表存在"""
     db = get_db_client()
     db.execute('''
@@ -580,14 +581,19 @@ def create_fragment(user_id: int,
         # 构建元数据
         meta_json = json.dumps(metadata or {}, ensure_ascii=False)
         
-        # 插入记忆片段
+        # 插入记忆片段（vector_synced 默认为 0）
         fragment_id = db.execute('''
-            INSERT INTO memory_fragments (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO memory_fragments (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at, vector_synced)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
         ''', (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at))
-        
-        # 同时存储到向量数据库（用于语义搜索）
-        # 写后校验：写入成功后立即查询确认，失败则记录到补偿队列
+
+        # 同一事务内写入 outbox（保证 SQLite 业务数据和 outbox 记录原子化）
+        db.execute('''
+            INSERT INTO vector_outbox (fragment_id, user_id, workspace_id, fragment_type, content, importance_score, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (fragment_id, user_id, str(workspace_id) if workspace_id is not None else "", fragment_type, content, importance_score, expires_at or ""))
+
+        # 尝试立即写入向量数据库（乐观执行）
         vector_synced = False
         try:
             chroma = get_chromadb_client()
@@ -606,18 +612,14 @@ def create_fragment(user_id: int,
                 )
                 vector_synced = True
         except BaseException as e:
-            logger.warning(f"⚠️  向量存储失败（将进入补偿队列）: {e}")
+            logger.warning(f"⚠️  向量存储失败（已写入 outbox，将由后台任务补偿）: {e}")
 
-        # 无论向量写入是否成功，都标记 SQLite 中的同步状态
-        # vector_synced=0 的记录将由一致性修复任务异步补偿
-        if not vector_synced:
-            try:
-                db.execute(
-                    'UPDATE memory_fragments SET metadata = json_set(COALESCE(metadata, "{}"), "$.vector_synced", 0) WHERE id = ?',
-                    (fragment_id,)
-                )
-            except Exception:
-                pass
+        # 根据向量写入结果更新状态
+        if vector_synced:
+            # 写入成功：标记 vector_synced=1 并删除 outbox 记录
+            db.execute('UPDATE memory_fragments SET vector_synced = 1 WHERE id = ?', (fragment_id,))
+            db.execute('DELETE FROM vector_outbox WHERE fragment_id = ?', (fragment_id,))
+        # 如果写入失败，outbox 记录保留，由 process_vector_outbox 后台任务处理
         
         logger.info(f"✓ 创建记忆片段 ID: {fragment_id}, 类型: {fragment_type}, TTL: {ttl}")
         
@@ -1124,6 +1126,92 @@ def search_fragments_by_semantic(user_id: int,
 # 跨存储一致性修复
 # ============================================================
 
+def process_vector_outbox(limit: int = 50) -> Dict[str, Any]:
+    """
+    处理向量写入 Outbox（后台任务）
+
+    扫描 vector_outbox 中待处理的记录，重试写入 ChromaDB。
+    采用指数退避策略：第 1 次重试立即执行，后续每次延迟 2^retry_count 秒。
+    最大重试 5 次，超过后标记为永久失败。
+
+    Returns:
+        处理结果统计
+    """
+    try:
+        db = get_db_client()
+        chroma = get_chromadb_client()
+
+        if chroma is None:
+            return {"success": True, "processed": 0, "skipped": "ChromaDB 不可用"}
+
+        # 查询待处理的 outbox 记录
+        rows = db.execute(
+            '''SELECT * FROM vector_outbox
+               WHERE retry_count < 5 AND next_retry_at <= CURRENT_TIMESTAMP
+               ORDER BY created_at ASC LIMIT ?''',
+            (limit,)
+        )
+
+        if not rows:
+            return {"success": True, "processed": 0, "message": "无待处理记录"}
+
+        processed = 0
+        succeeded = 0
+        failed = 0
+
+        for row in rows:
+            row_dict = dict(row)
+            fragment_id = row_dict["fragment_id"]
+            processed += 1
+
+            try:
+                chroma.add_embedding(
+                    text=row_dict["content"],
+                    metadata={
+                        "fragment_id": str(fragment_id),
+                        "user_id": str(row_dict["user_id"]),
+                        "workspace_id": row_dict.get("workspace_id") or "",
+                        "fragment_type": row_dict["fragment_type"],
+                        "importance_score": str(row_dict.get("importance_score", 0.5)),
+                        "expires_at": row_dict.get("expires_at") or "",
+                        "vector_synced": "1",
+                        "outbox_repaired": "1",
+                    }
+                )
+                # 写入成功：标记 vector_synced=1 并删除 outbox 记录
+                db.execute('UPDATE memory_fragments SET vector_synced = 1 WHERE id = ?', (fragment_id,))
+                db.execute('DELETE FROM vector_outbox WHERE id = ?', (row_dict["id"],))
+                succeeded += 1
+            except Exception as e:
+                failed += 1
+                retry_count = row_dict.get("retry_count", 0) + 1
+                # 指数退避：2^retry_count 秒后重试
+                from datetime import timedelta
+                delay_seconds = 2 ** retry_count
+                db.execute(
+                    '''UPDATE vector_outbox
+                       SET retry_count = ?, next_retry_at = datetime('now', '+' || ? || ' seconds')
+                       WHERE id = ?''',
+                    (retry_count, delay_seconds, row_dict["id"])
+                )
+                if retry_count >= 5:
+                    logger.error(f"✗ Outbox 记录 {row_dict['id']} (fragment_id={fragment_id}) 达到最大重试次数: {e}")
+                else:
+                    logger.warning(f"⚠️ Outbox 记录 {row_dict['id']} 重试 {retry_count}/5: {e}")
+
+        logger.info(f"✓ Outbox 处理完成: 处理 {processed}, 成功 {succeeded}, 失败 {failed}")
+        return {
+            "success": True,
+            "processed": processed,
+            "succeeded": succeeded,
+            "failed": failed,
+        }
+
+    except Exception as e:
+        logger.error(f"✗ Outbox 处理失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
 def repair_vector_consistency(limit: int = 100) -> Dict[str, Any]:
     """
     修复 SQLite 与 ChromaDB 的数据一致性
@@ -1208,6 +1296,60 @@ def repair_vector_consistency(limit: int = 100) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"✗ 一致性修复失败: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ============================================================
+# 向量 Outbox 后台调度器
+# ============================================================
+
+_outbox_task: Optional[asyncio.Task] = None
+_outbox_running = False
+
+async def _outbox_loop():
+    """按配置间隔处理 pending outbox 记录"""
+    global _outbox_running
+    from app.core.config import get_settings
+    interval = get_settings().OUTBOX_SCHEDULER_INTERVAL
+    logger.info(f"🔄 向量 Outbox 调度器已启动，每 {interval} 秒处理一次")
+    while _outbox_running:
+        try:
+            await asyncio.sleep(interval)
+            if not _outbox_running:
+                break
+            result = process_vector_outbox(limit=50)
+            if result.get("processed", 0) > 0:
+                logger.info(f"📋 Outbox 处理: {result}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"✗ Outbox 调度器异常: {e}")
+            await asyncio.sleep(10)
+    logger.info("🔄 向量 Outbox 调度器已停止")
+
+
+def start_outbox_scheduler() -> None:
+    """启动向量 Outbox 后台调度器"""
+    global _outbox_task, _outbox_running
+    if _outbox_running:
+        logger.warning("Outbox 调度器已在运行")
+        return
+    _outbox_running = True
+    try:
+        _outbox_task = asyncio.create_task(_outbox_loop())
+        logger.info("✓ 向量 Outbox 调度器已启动")
+    except RuntimeError:
+        _outbox_running = False
+        logger.warning("无事件循环，跳过 Outbox 调度器启动")
+
+
+def stop_outbox_scheduler() -> None:
+    """停止向量 Outbox 后台调度器"""
+    global _outbox_task, _outbox_running
+    _outbox_running = False
+    if _outbox_task:
+        _outbox_task.cancel()
+        _outbox_task = None
+        logger.info("✓ 向量 Outbox 调度器已停止")
 
 
 # ============================================================

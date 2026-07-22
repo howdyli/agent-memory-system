@@ -63,7 +63,8 @@ def sanitize_table_name(table_name: str) -> str:
 # ============================================================
 
 def natural_language_to_sql(user_id: int, question: str,
-                            workspace_id: Optional[int] = None) -> Dict[str, Any]:
+                            workspace_id: Optional[int] = None,
+                            table_name: Optional[str] = None) -> Dict[str, Any]:
     """
     将自然语言问题转换为 SQL 查询
     
@@ -73,6 +74,9 @@ def natural_language_to_sql(user_id: int, question: str,
     Args:
         user_id: 用户 ID
         question: 用户的自然语言问题
+        workspace_id: 工作区 ID
+        table_name: 目标表名（前端选中的表）。提供时优先锁定该表，
+                    避免因问题中未出现表名/字段名而误匹配到其它表。
         
     Returns:
         转换结果（包含 SQL 和解析信息）
@@ -94,26 +98,36 @@ def natural_language_to_sql(user_id: int, question: str,
         matched_table = None
         matched_fields = []
         
-        for table_info in tables:
-            table_name = table_info.get("table_name", "")
-            fields = table_info.get("fields", [])
-            field_names = [f.get("name", "") for f in fields]
-            
-            # 检查表名是否在问题中
-            if table_name in question:
-                matched_table = table_info
-                matched_fields = fields
-                break
-            
-            # 检查字段名是否在问题中
-            for fname in field_names:
-                if fname in question:
+        # 2a. 若前端指定了目标表，优先锁定（按表名精确匹配）
+        if table_name:
+            for table_info in tables:
+                if table_info.get("table_name", "") == table_name:
+                    matched_table = table_info
+                    matched_fields = table_info.get("fields", [])
+                    break
+        
+        # 2b. 未指定或未命中时，回退到基于问题内容的匹配
+        if not matched_table:
+            for table_info in tables:
+                current_name = table_info.get("table_name", "")
+                fields = table_info.get("fields", [])
+                field_names = [f.get("name", "") for f in fields]
+                
+                # 检查表名是否在问题中
+                if current_name in question:
                     matched_table = table_info
                     matched_fields = fields
                     break
-            
-            if matched_table:
-                break
+                
+                # 检查字段名是否在问题中
+                for fname in field_names:
+                    if fname in question:
+                        matched_table = table_info
+                        matched_fields = fields
+                        break
+                
+                if matched_table:
+                    break
         
         # 如果没有匹配到表，使用第一个表
         if not matched_table and tables:
@@ -174,6 +188,19 @@ def natural_language_to_sql(user_id: int, question: str,
                     conditions.append(f'"{fname}" = \'{value}\'')
                     break
         
+        # 3d-2. 检测数值比较条件
+        # 模式: "字段超过100" / "字段大于100" / "字段低于100" / "字段小于100"
+        for fname in field_names:
+            gt_pattern = rf'{re.escape(fname)}\s*(?:超过|大于|高于|多于|>=?)\s*(\d+(?:\.\d+)?)'
+            lt_pattern = rf'{re.escape(fname)}\s*(?:低于|小于|少于|不足|<=?)\s*(\d+(?:\.\d+)?)'
+            gt_match = re.search(gt_pattern, question)
+            if gt_match:
+                conditions.append(f'"{fname}" > {gt_match.group(1)}')
+                continue
+            lt_match = re.search(lt_pattern, question)
+            if lt_match:
+                conditions.append(f'"{fname}" < {lt_match.group(1)}')
+
         # 3e. 检测 LIKE 条件
         # 模式: "包含XXX" / "像XXX"
         for fname in field_names:
@@ -260,7 +287,8 @@ def execute_safe_query(user_id: int, sql: str) -> Dict[str, Any]:
 
 
 def natural_language_to_sql_only(user_id: int, question: str,
-                                 workspace_id: Optional[int] = None) -> Dict[str, Any]:
+                                 workspace_id: Optional[int] = None,
+                                 table_name: Optional[str] = None) -> Dict[str, Any]:
     """
     仅将自然语言转换为 SQL，不执行。
 
@@ -269,13 +297,15 @@ def natural_language_to_sql_only(user_id: int, question: str,
     Args:
         user_id: 用户 ID
         question: 自然语言问题
+        workspace_id: 工作区 ID
+        table_name: 目标表名（前端选中的表）
 
     Returns:
         {"success": True, "sql": str, "is_safe": bool, "safety_reason": str, ...}
         或 {"success": False, "error": str}
     """
     try:
-        nl_result = natural_language_to_sql(user_id, question, workspace_id)
+        nl_result = natural_language_to_sql(user_id, question, workspace_id, table_name)
         if not nl_result["success"]:
             return nl_result
 

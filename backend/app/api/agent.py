@@ -11,7 +11,7 @@ import logging
 import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List, AsyncGenerator
 
 import sys
@@ -33,13 +33,13 @@ router = APIRouter(tags=["agent"])
 # ============================================================
 
 class AgentChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1)
     system_prompt: Optional[str] = None
     session_id: Optional[str] = None
 
 
 class ExtractRequest(BaseModel):
-    conversation: List[Dict[str, str]]
+    conversation: List[Dict[str, str]] = Field(..., min_length=1)
     auto_store: Optional[bool] = True
 
 
@@ -51,7 +51,7 @@ class ExecuteToolRequest(BaseModel):
 # API 路由
 # ============================================================
 
-@router.post("/chat")
+@router.post("/chat", summary="Agent 对话", description="带记忆的 Agent 对话（核心入口）：自动召回 → LLM 推理 → 记忆抽取")
 async def agent_chat(
     request: AgentChatRequest,
     principal: Principal = Depends(get_current_principal),
@@ -162,7 +162,7 @@ async def _chat_stream_generator(
 # Streaming API
 # ============================================================
 
-@router.post("/chat/stream")
+@router.post("/chat/stream", summary="流式 Agent 对话", description="SSE 流式输出 Agent 对话结果，支持渐进式 token 输出")
 async def agent_chat_stream(
     request: AgentChatRequest,
     principal: Principal = Depends(get_current_principal),
@@ -266,7 +266,7 @@ async def execute_tool(
         )
 
 
-@router.post("/extract")
+@router.post("/extract", summary="LLM 记忆抽取", description="从对话历史中智能抽取需要长期记忆的信息并自动存储")
 async def extract_memories(
     request: ExtractRequest,
     principal: Principal = Depends(get_current_principal),

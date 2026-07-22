@@ -42,7 +42,7 @@ def _get_recall_engine():
     return _RecallEngine
 
 
-def _get_value_scorer():
+def _get_value_scorer() -> type:
     global _MemoryValueScorer
     if _MemoryValueScorer is None:
         from app.services.context_compressor import MemoryValueScorer
@@ -85,7 +85,7 @@ SUMMARY_CACHE_KEY = "summary_cache"
 RECENT_QUERIES_KEY = "recent_queries"
 
 
-def _get_recall_config_table():
+def _get_recall_config_table() -> None:
     """确保召回配置表存在"""
     db = get_db_client()
     db.execute('''

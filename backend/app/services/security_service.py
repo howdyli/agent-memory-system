@@ -218,18 +218,23 @@ class RateLimiter:
     def __init__(self):
         self._requests: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
 
-    def check(self, key: str, max_requests: int = 100, window_seconds: int = 60) -> Dict[str, Any]:
+    def check(self, key: str, max_requests: int = None, window_seconds: int = None) -> Dict[str, Any]:
         """
         检查速率限制
 
         Args:
             key: 限制键（如 user_id 或 IP）
-            max_requests: 窗口内最大请求数
-            window_seconds: 窗口时间（秒）
+            max_requests: 窗口内最大请求数（默认从配置读取）
+            window_seconds: 窗口时间（秒，默认从配置读取）
 
         Returns:
             是否允许请求
         """
+        if max_requests is None or window_seconds is None:
+            from app.core.config import get_settings
+            s = get_settings()
+            max_requests = max_requests or s.RATE_LIMIT_REQUESTS
+            window_seconds = window_seconds or s.RATE_LIMIT_WINDOW_SECONDS
         now = time.time()
         window_start = now - window_seconds
 
@@ -271,7 +276,7 @@ def get_rate_limiter() -> RateLimiter:
 # 安全审计日志
 # ============================================================
 
-def _ensure_security_tables():
+def _ensure_security_tables() -> None:
     """确保安全表存在"""
     db = get_db_client()
     db.execute('''
@@ -468,7 +473,7 @@ def security_check(input_string: str, user_id: Optional[int] = None,
     return results
 
 
-def secure_input(max_length: int = 10000):
+def secure_input(max_length: int = 10000) -> Callable:
     """
     安全输入装饰器
 

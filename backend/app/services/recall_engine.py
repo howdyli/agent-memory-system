@@ -34,7 +34,7 @@ _MemoryValueScorer = None
 _EntityGraphTraverser = None
 
 
-def _get_scorer():
+def _get_scorer() -> type:
     global _MemoryValueScorer
     if _MemoryValueScorer is None:
         from app.services.context_compressor import MemoryValueScorer
@@ -42,7 +42,7 @@ def _get_scorer():
     return _MemoryValueScorer
 
 
-def _get_entity_traverser():
+def _get_entity_traverser() -> type:
     global _EntityGraphTraverser
     if _EntityGraphTraverser is None:
         from app.services.context_compressor import EntityGraphTraverser

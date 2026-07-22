@@ -565,10 +565,9 @@ def memory_aware_chat(
     # 会话元数据管理
     compressor = _get_compressor()
     try:
-        if _is_new_session:
-            compressor.conversation_mgr.create_session(session_id, user_id, user_message[:20])
-        else:
-            compressor.conversation_mgr.touch_session(session_id)
+        # 始终调用 create_session（INSERT OR IGNORE），确保 session 记录存在
+        compressor.conversation_mgr.create_session(session_id, user_id, user_message[:20])
+        compressor.conversation_mgr.touch_session(session_id)
     except Exception:
         pass  # 不影响主流程
 

@@ -589,7 +589,7 @@ async def natural_language_to_sql_api(
     将用户问题转换为 SQL 并返回安全校验结果，供前端预览确认。
 
     Args:
-        table_name: 目标表名（当前用于上下文，SQL 生成仍会自动匹配）
+        table_name: 目标表名（用于锁定生成 SQL 的目标表）
         request: 自然语言问题
         current_user: 当前登录用户
 
@@ -609,7 +609,8 @@ async def natural_language_to_sql_api(
         result = natural_language_to_sql_only(
             user_id=principal.user_id,
             question=request.question,
-            workspace_id=principal.workspace_id
+            workspace_id=principal.workspace_id,
+            table_name=table_name
         )
 
         if result["success"]:

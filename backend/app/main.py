@@ -78,6 +78,10 @@ async def lifespan(app: FastAPI):
         start_lifecycle_scheduler,
         stop_lifecycle_scheduler,
     )
+    from app.services.memory_fragment_service import (
+        start_outbox_scheduler,
+        stop_outbox_scheduler,
+    )
     from app.core.event_bus import get_event_bus
     from app.services.webhook_service import (
         start_webhook_worker,
@@ -94,6 +98,7 @@ async def lifespan(app: FastAPI):
 
     # 启动各子系统
     start_lifecycle_scheduler()
+    start_outbox_scheduler()
     event_bus = get_event_bus()
     await event_bus.start()
     start_webhook_worker()
@@ -105,15 +110,34 @@ async def lifespan(app: FastAPI):
     shutdown_tracing()
     stop_retry_worker()
     stop_webhook_worker()
+    stop_outbox_scheduler()
     await event_bus.stop()
     stop_lifecycle_scheduler()
 
 
 app = FastAPI(
     title="Agent Memory System",
-    description="Agent Memory System Backend API",
-    version="0.1.0",
+    description="""
+## Agent Memory System Backend API
+
+智能记忆管理系统，提供以下核心能力：
+
+- **记忆片段管理** — 语义记忆的 CRUD、批量操作、重要性评分
+- **知识图谱** — 实体/关系管理、图遍历、时序追踪、自然语言查询
+- **长期记忆** — 版本控制、反馈机制、权重调整、自动改进
+- **记忆生命周期** — 差异化半衰期、冷热分层、软删除/恢复、自动归档
+- **混合搜索** — 语义+BM25+实体+时间衰减融合排序、权重可调
+- **Agent 对话** — 带记忆上下文的 LLM 对话、工具调用、流式输出
+- **可观测性** — 仪表盘指标、质量评估、链路追踪
+""",
+    version="0.2.0",
     lifespan=lifespan,
+    openapi_tags=[
+        {"name": "agent", "description": "Agent 对话与工具调用"},
+        {"name": "memory-graph", "description": "知识图谱记忆管理"},
+        {"name": "sessions", "description": "会话管理"},
+        {"name": "auth", "description": "认证与授权"},
+    ],
 )
 
 

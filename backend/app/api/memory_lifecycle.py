@@ -8,8 +8,8 @@ Memory Lifecycle API 路由
 """
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel
-from typing import Optional, Any, Dict, List
+from pydantic import BaseModel, Field
+from typing import Optional, Any, Dict, List, Literal
 
 import sys
 import os
@@ -54,48 +54,48 @@ router = APIRouter(tags=["memory-lifecycle"])
 # ============================================================
 
 class MarkColdRequest(BaseModel):
-    memory_type: str  # fragment, variable
-    memory_id: str
-    reason: Optional[str] = "user_requested"
+    memory_type: Literal["fragment", "variable", "table"]  # fragment, variable
+    memory_id: str = Field(..., min_length=1)
+    reason: Optional[str] = Field("user_requested", max_length=200)
 
 
 class SoftDeleteRequest(BaseModel):
-    memory_type: str
-    memory_id: str
-    reason: Optional[str] = None
+    memory_type: Literal["fragment", "variable", "table"]
+    memory_id: str = Field(..., min_length=1)
+    reason: Optional[str] = Field(None, max_length=200)
 
 
 class HardDeleteRequest(BaseModel):
-    memory_type: str
-    memory_id: str
-    reason: Optional[str] = None
+    memory_type: Literal["fragment", "variable", "table"]
+    memory_id: str = Field(..., min_length=1)
+    reason: Optional[str] = Field(None, max_length=200)
 
 
 class MergeRequest(BaseModel):
-    source_ids: List[int]
-    target_content: str
+    source_ids: List[int] = Field(..., min_length=1)
+    target_content: str = Field(..., min_length=1)
     target_type: Optional[str] = "info"
 
 
 class ResolveConflictRequest(BaseModel):
-    conflict_id: Optional[int] = None
-    resolution: str
+    conflict_id: Optional[int] = Field(None, ge=1)
+    resolution: str = Field(..., min_length=1, max_length=50)
     merged_value: Optional[str] = None
 
 
 class ArchiveRequest(BaseModel):
-    cold_days: Optional[int] = 30
+    cold_days: Optional[int] = Field(30, ge=1, le=365)
 
 
 class FindDuplicatesRequest(BaseModel):
-    content: str
-    threshold: Optional[float] = 0.85
-    limit: Optional[int] = 10
+    content: str = Field(..., min_length=1)
+    threshold: Optional[float] = Field(0.85, ge=0.0, le=1.0)
+    limit: Optional[int] = Field(10, ge=1, le=100)
 
 
 class DetectConflictRequest(BaseModel):
-    key: str
-    new_value: str
+    key: str = Field(..., min_length=1, max_length=200)
+    new_value: str = Field(..., min_length=1)
 
 
 # ============================================================

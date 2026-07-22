@@ -4,8 +4,8 @@
 import logging
 import fastapi as _fastapi
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from typing import Optional, Any, Dict, List
+from pydantic import BaseModel, Field
+from typing import Optional, Any, Dict, List, Literal
 
 # 导入服务
 import sys
@@ -58,14 +58,14 @@ class BatchExtractRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     extraction_id: str
-    rating: str  # "correct" | "partial" | "incorrect"
+    rating: Literal["correct", "partial", "incorrect"]
     correction: Optional[str] = None
     source_text: Optional[str] = None
     extracted_data: Optional[Dict[str, Any]] = None
 
 
 class PreviewRequest(BaseModel):
-    text: str
+    text: str = Field(..., min_length=1, description="待抽取的文本（不能为空）")
     session_id: Optional[str] = None
 
 
@@ -309,8 +309,6 @@ async def get_memory_summary(
 # 抽取反馈 / 模板 / 预览 API
 # ============================================================
 
-VALID_RATINGS = {"correct", "partial", "incorrect"}
-
 
 @router.post("/feedback")
 async def submit_feedback(
@@ -324,12 +322,6 @@ async def submit_feedback(
     存储到数据库用于后续分析。
     """
     try:
-        if request.rating not in VALID_RATINGS:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"rating 必须为 {VALID_RATINGS} 之一",
-            )
-
         import json
         from app.core.db_client import get_db_client
         db = get_db_client()
@@ -489,12 +481,6 @@ async def preview_extraction(
     用于在用户确认前预览抽取质量。
     """
     try:
-        if not request.text or not request.text.strip():
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="text 不能为空",
-            )
-
         conversation = [
             {"role": "user", "content": request.text},
             {"role": "assistant", "content": "好的，我已经记住了这些信息。"},

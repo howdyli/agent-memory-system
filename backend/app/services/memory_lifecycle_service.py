@@ -5,6 +5,13 @@ Memory Lifecycle - 智能记忆生命周期管理模块
 1. 差异化半衰期机制：基于记忆类型的不同过期策略
 2. 弹性驱逐策略：冷记忆标记、归档、软删除、恢复
 3. 自动合并与冲突检测：重复检测、冲突告警、合并审计
+
+⚠️ 状态源规范（Single Source of Truth）：
+- `memory_fragments.lifecycle_status` 是记忆生命周期的唯一权威状态来源
+- `memory_lifecycle` 表仅作为事件审计日志，记录状态变更历史
+- 查询记忆状态时，应优先读取 `memory_fragments.lifecycle_status`
+- 对于 variable 类型记忆（无对应 fragment 行），回退到 `memory_lifecycle.lifecycle_status`
+- 状态变更时，必须同时更新两表以保持一致性
 """
 import logging
 import json
@@ -18,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.db_client import get_db_client
 from app.core.tracing import get_tracer
+from app.core.cache import ttl_cache
 from app.services.memory_observability_service import record_trace_event
 from app.services.memory_fragment_service import (
     get_fragment,
@@ -67,7 +75,7 @@ DEFAULT_COLD_UNRECALLED_DAYS = 30
 # 工具函数
 # ============================================================
 
-def _ensure_lifecycle_tables():
+def _ensure_lifecycle_tables() -> None:
     """确保生命周期相关表存在（初次使用时调用）"""
     from app.core.db_client import get_db_client
     db = get_db_client()
@@ -506,18 +514,27 @@ def auto_archive_cold_memories(
 
         if user_id:
             rows = db.execute(
-                '''SELECT lc.id, lc.user_id, lc.memory_type, lc.memory_id
+                '''SELECT lc.id, lc.user_id, lc.memory_type, lc.memory_id,
+                          COALESCE(f.lifecycle_status, lc.lifecycle_status) as current_status,
+                          COALESCE(f.last_recalled_at, lc.last_recalled_at) as last_recalled
                    FROM memory_lifecycle lc
-                   WHERE lc.user_id = ? AND lc.lifecycle_status = 'cold'
-                   AND (lc.last_recalled_at IS NULL OR lc.last_recalled_at < ?)''',
+                   LEFT JOIN memory_fragments f ON lc.memory_id = CAST(f.id AS TEXT)
+                   WHERE lc.user_id = ?
+                   AND COALESCE(f.lifecycle_status, lc.lifecycle_status) = 'cold'
+                   AND (COALESCE(f.last_recalled_at, lc.last_recalled_at) IS NULL
+                        OR COALESCE(f.last_recalled_at, lc.last_recalled_at) < ?)''',
                 (user_id, cutoff)
             )
         else:
             rows = db.execute(
-                '''SELECT lc.id, lc.user_id, lc.memory_type, lc.memory_id
+                '''SELECT lc.id, lc.user_id, lc.memory_type, lc.memory_id,
+                          COALESCE(f.lifecycle_status, lc.lifecycle_status) as current_status,
+                          COALESCE(f.last_recalled_at, lc.last_recalled_at) as last_recalled
                    FROM memory_lifecycle lc
-                   WHERE lc.lifecycle_status = 'cold'
-                   AND (lc.last_recalled_at IS NULL OR lc.last_recalled_at < ?)''',
+                   LEFT JOIN memory_fragments f ON lc.memory_id = CAST(f.id AS TEXT)
+                   WHERE COALESCE(f.lifecycle_status, lc.lifecycle_status) = 'cold'
+                   AND (COALESCE(f.last_recalled_at, lc.last_recalled_at) IS NULL
+                        OR COALESCE(f.last_recalled_at, lc.last_recalled_at) < ?)''',
                 (cutoff,)
             )
 
@@ -676,7 +693,7 @@ def restore_memory(
         db = get_db_client()
         now = datetime.now().isoformat()
 
-        # 1. 获取当前 lifecycle 记录
+        # 1. 获取当前 lifecycle 记录（用于审计和 restore_count）
         rows = db.execute(
             '''SELECT * FROM memory_lifecycle
                WHERE user_id = ? AND memory_type = ? AND memory_id = ?''',
@@ -686,8 +703,19 @@ def restore_memory(
             return {"success": False, "error": "记忆未找到"}
 
         lc = dict(rows[0])
-        if lc["lifecycle_status"] != "soft_deleted":
-            return {"success": False, "error": f"记忆状态为 {lc['lifecycle_status']}，无法恢复"}
+
+        # 状态检查：优先使用 memory_fragments.lifecycle_status（SSOT）
+        current_status = lc["lifecycle_status"]
+        if memory_type == "fragment":
+            frag_rows = db.execute(
+                '''SELECT lifecycle_status FROM memory_fragments WHERE id = ?''',
+                (int(memory_id),)
+            )
+            if frag_rows:
+                current_status = dict(frag_rows[0])["lifecycle_status"]
+
+        if current_status != "soft_deleted":
+            return {"success": False, "error": f"记忆状态为 {current_status}，无法恢复"}
 
         # 2. 恢复状态
         restore_count = (lc.get("restore_count") or 0) + 1
@@ -834,7 +862,8 @@ def list_cold_memories(
                       f.created_at
                FROM memory_lifecycle lc
                LEFT JOIN memory_fragments f ON lc.memory_id = CAST(f.id AS TEXT)
-               WHERE lc.user_id = ? AND lc.lifecycle_status = 'cold'
+               WHERE lc.user_id = ?
+               AND COALESCE(f.lifecycle_status, lc.lifecycle_status) = 'cold'
                ORDER BY lc.cold_at DESC
                LIMIT ? OFFSET ?''',
             (user_id, limit, offset)
@@ -843,8 +872,11 @@ def list_cold_memories(
         memories = [dict(r) for r in rows] if rows else []
 
         count_rows = db.execute(
-            '''SELECT COUNT(*) as total FROM memory_lifecycle
-               WHERE user_id = ? AND lifecycle_status = 'cold' ''',
+            '''SELECT COUNT(*) as total
+               FROM memory_lifecycle lc
+               LEFT JOIN memory_fragments f ON lc.memory_id = CAST(f.id AS TEXT)
+               WHERE lc.user_id = ?
+               AND COALESCE(f.lifecycle_status, lc.lifecycle_status) = 'cold' ''',
             (user_id,)
         )
         total = count_rows[0]["total"] if count_rows else 0
@@ -887,7 +919,8 @@ def list_deleted_memories(
                       f.created_at
                FROM memory_lifecycle lc
                LEFT JOIN memory_fragments f ON lc.memory_id = CAST(f.id AS TEXT)
-               WHERE lc.user_id = ? AND lc.lifecycle_status = 'soft_deleted'
+               WHERE lc.user_id = ?
+               AND COALESCE(f.lifecycle_status, lc.lifecycle_status) = 'soft_deleted'
                ORDER BY lc.soft_deleted_at DESC
                LIMIT ? OFFSET ?''',
             (user_id, limit, offset)
@@ -896,8 +929,11 @@ def list_deleted_memories(
         memories = [dict(r) for r in rows] if rows else []
 
         count_rows = db.execute(
-            '''SELECT COUNT(*) as total FROM memory_lifecycle
-               WHERE user_id = ? AND lifecycle_status = 'soft_deleted' ''',
+            '''SELECT COUNT(*) as total
+               FROM memory_lifecycle lc
+               LEFT JOIN memory_fragments f ON lc.memory_id = CAST(f.id AS TEXT)
+               WHERE lc.user_id = ?
+               AND COALESCE(f.lifecycle_status, lc.lifecycle_status) = 'soft_deleted' ''',
             (user_id,)
         )
         total = count_rows[0]["total"] if count_rows else 0
@@ -962,6 +998,7 @@ def get_delete_log(
         return {"success": False, "error": str(e)}
 
 
+@ttl_cache(ttl=60, key_prefix="lifecycle_stats")
 def get_lifecycle_stats(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取生命周期统计信息。
@@ -976,25 +1013,34 @@ def get_lifecycle_stats(user_id: int, workspace_id: Optional[int] = None) -> Dic
         _ensure_lifecycle_tables()
         db = get_db_client()
 
-        def _count(condition: str) -> int:
+        # 从 memory_fragments 表统计各生命周期状态的记录数
+        # memory_fragments.lifecycle_status 是记录的主状态来源
+        if workspace_id is None:
+            ws_clause = "AND workspace_id IS NULL"
+            ws_params: tuple = ()
+        else:
+            ws_clause = "AND workspace_id = ?"
+            ws_params = (workspace_id,)
+
+        def _count_fragments(status: str) -> int:
             rows = db.execute(
-                f'SELECT COUNT(*) as cnt FROM memory_lifecycle WHERE user_id = ? AND {condition}',
-                (user_id,)
+                f'SELECT COUNT(*) as cnt FROM memory_fragments WHERE user_id = ? AND lifecycle_status = ? {ws_clause}',
+                (user_id, status, *ws_params)
             )
             return rows[0]["cnt"] if rows else 0
 
-        active = _count("lifecycle_status = 'active'")
-        cold = _count("lifecycle_status = 'cold'")
-        archived = _count("lifecycle_status = 'archived'")
-        soft_deleted = _count("lifecycle_status = 'soft_deleted'")
+        active = _count_fragments("active")
+        cold = _count_fragments("cold")
+        archived = _count_fragments("archived")
+        soft_deleted = _count_fragments("soft_deleted")
 
         # 按类型统计
         type_rows = db.execute(
-            '''SELECT f.fragment_type, COUNT(*) as cnt
+            f'''SELECT f.fragment_type, COUNT(*) as cnt
                FROM memory_fragments f
-               WHERE f.user_id = ? AND f.lifecycle_status = 'active'
+               WHERE f.user_id = ? AND f.lifecycle_status = 'active' {ws_clause}
                GROUP BY f.fragment_type''',
-            (user_id,)
+            (user_id, *ws_params)
         )
         by_type = {r["fragment_type"]: r["cnt"] for r in type_rows} if type_rows else {}
 

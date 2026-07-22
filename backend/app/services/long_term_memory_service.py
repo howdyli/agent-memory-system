@@ -32,7 +32,7 @@ from app.services.memory_table_service import list_tables
 # Task 22: 记忆版本控制机制
 # ============================================================
 
-def _ensure_version_tables():
+def _ensure_version_tables() -> None:
     """确保版本控制表存在"""
     db = get_db_client()
     db.execute('''

@@ -59,6 +59,27 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # ===== 调度器 =====
+    OUTBOX_SCHEDULER_INTERVAL: int = 30        # 向量 outbox 处理间隔（秒）
+    LIFECYCLE_SCHEDULER_INTERVAL: int = 30     # 生命周期调度间隔（秒）
+    OUTBOX_MAX_RETRIES: int = 5                # outbox 最大重试次数
+
+    # ===== LLM =====
+    LLM_TIMEOUT_SECONDS: int = 30              # LLM 调用超时
+    LLM_RETRY_DELAYS: str = "2,8,30"           # LLM 重试延迟（秒，逗号分隔）
+
+    # ===== 限流 =====
+    RATE_LIMIT_REQUESTS: int = 100             # 请求限流阈值
+    RATE_LIMIT_WINDOW_SECONDS: int = 60        # 限流窗口（秒）
+
+    # ===== 缓存 =====
+    HYBRID_SEARCH_CACHE_TTL: int = 300         # 混合搜索结果缓存 TTL（秒）
+    STATS_CACHE_TTL: int = 60                  # 统计接口缓存 TTL（秒）
+
+    # ===== 生命周期 =====
+    COLD_MEMORY_THRESHOLD_DAYS: int = 30       # 冷记忆标记阈值（天）
+    DEFAULT_HALF_LIFE_DAYS: int = 30           # 默认半衰期（天）
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

@@ -38,13 +38,13 @@ class BatchDeleteRequest(BaseModel):
 # ----------------------------------------------------------
 # GET /sessions — 列出用户会话
 # ----------------------------------------------------------
-@router.get("/sessions")
+@router.get("/sessions", summary="列出会话", description="列出当前用户的会话，支持传统分页（limit/offset）和页码分页（page/page_size）")
 async def list_sessions(
     principal: Principal = Depends(get_current_principal),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     page: int = Query(0, ge=0),
-    page_size: int = Query(0, ge=1, le=200),
+    page_size: int = Query(0, ge=0, le=200),
 ):
     """
     列出用户会话。
@@ -64,7 +64,7 @@ async def list_sessions(
 # ----------------------------------------------------------
 # GET /sessions/search — 搜索会话
 # ----------------------------------------------------------
-@router.get("/sessions/search")
+@router.get("/sessions/search", summary="搜索会话", description="搜索会话标题与消息内容，返回匹配会话列表及高亮片段")
 async def search_sessions(
     principal: Principal = Depends(get_current_principal),
     q: str = Query(..., min_length=1, max_length=200, description="搜索关键词"),
@@ -112,21 +112,29 @@ async def search_sessions(
         )
         sessions = [dict(r) for r in (sessions_rows or [])]
 
-        # 3. 为每个会话提取匹配的消息高亮片段
+        # 3. 批量查询所有会话的匹配消息（避免 N+1 查询）
+        placeholders = ",".join(["?"] * len(session_ids))
+        all_content_rows = db.execute(
+            f"""
+            SELECT session_id, content FROM conversation_history
+            WHERE session_id IN ({placeholders}) AND content LIKE ?
+            ORDER BY id DESC
+            """,
+            (*session_ids, keyword),
+        )
+        # 按会话分组，每个会话最多取 3 条
+        from collections import defaultdict
+        content_by_session = defaultdict(list)
+        for row in (all_content_rows or []):
+            sid = row["session_id"]
+            if len(content_by_session[sid]) < 3:
+                content_by_session[sid].append(row["content"] or "")
+
+        # 为每个会话提取高亮片段
         for session in sessions:
             sid = session["session_id"]
-            content_rows = db.execute(
-                """
-                SELECT content FROM conversation_history
-                WHERE session_id = ? AND content LIKE ?
-                ORDER BY id DESC
-                LIMIT 3
-                """,
-                (sid, keyword),
-            )
             highlights = []
-            for row in (content_rows or []):
-                text = row["content"] or ""
+            for text in content_by_session.get(sid, []):
                 idx = text.lower().find(q.lower())
                 if idx < 0:
                     idx = 0

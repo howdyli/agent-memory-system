@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from app.core.auth import Principal
@@ -91,7 +91,7 @@ def revoke_api_key(key_id: int, workspace_id: int) -> bool:
     key = store.get(ApiKey, key_id)
     if key is None or key.workspace_id != workspace_id:
         return False
-    store.update(ApiKey, key_id, {"revoked_at": datetime.utcnow()})
+    store.update(ApiKey, key_id, {"revoked_at": datetime.now(timezone.utc)})
     return True
 
 
@@ -119,11 +119,11 @@ async def validate_api_key(raw_key: str) -> Optional[Principal]:
     if key.revoked_at is not None:
         return None
     # 已过期
-    if key.expires_at is not None and key.expires_at < datetime.utcnow():
+    if key.expires_at is not None and key.expires_at < datetime.now(timezone.utc):
         return None
 
     # 更新 last_used_at
-    store.update(ApiKey, key.id, {"last_used_at": datetime.utcnow()})
+    store.update(ApiKey, key.id, {"last_used_at": datetime.now(timezone.utc)})
 
     try:
         scopes = json.loads(key.scopes) if key.scopes else []

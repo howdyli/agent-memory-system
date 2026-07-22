@@ -128,7 +128,7 @@ def get_cache() -> CacheService:
     return _cache_service
 
 
-def cached(namespace: str, ttl: int = 300):
+def cached(namespace: str, ttl: int = 300) -> Callable:
     """
     缓存装饰器
 
@@ -165,7 +165,7 @@ def cached(namespace: str, ttl: int = 300):
 # LLM 响应缓存
 # ============================================================
 
-def cache_llm_response(user_id: int, prompt_hash: str, response: Any, ttl: int = 3600):
+def cache_llm_response(user_id: int, prompt_hash: str, response: Any, ttl: int = 3600) -> None:
     """缓存 LLM 响应"""
     _cache_service.set(f"llm:{user_id}", prompt_hash, response, ttl)
 
@@ -185,7 +185,7 @@ def compute_prompt_hash(messages: List[Dict[str, str]]) -> str:
 # 数据库查询优化
 # ============================================================
 
-def _ensure_perf_tables():
+def _ensure_perf_tables() -> None:
     """确保性能表存在"""
     db = get_db_client()
     db.execute('''
@@ -390,7 +390,7 @@ def get_performance_stats() -> Dict[str, Any]:
 # 细粒度性能指标服务（Observability Performance Tab）
 # ============================================================
 
-def _ensure_performance_metrics_table():
+def _ensure_performance_metrics_table() -> None:
     """确保 performance_metrics 表存在"""
     db = get_db_client()
     db.execute('''

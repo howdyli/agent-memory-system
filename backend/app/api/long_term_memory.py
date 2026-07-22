@@ -5,8 +5,8 @@
 """
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from typing import Optional, Any, Dict, List
+from pydantic import BaseModel, Field
+from typing import Optional, Any, Dict, List, Literal
 
 import sys
 import os
@@ -35,34 +35,34 @@ router = APIRouter(tags=["long-term-memory"])
 
 
 class RecordVersionRequest(BaseModel):
-    memory_type: str
-    memory_id: str
-    action: str
+    memory_type: Literal["fragment", "variable", "table"]
+    memory_id: str = Field(..., min_length=1)
+    action: str = Field(..., min_length=1, max_length=50)
     old_value: Optional[Any] = None
     new_value: Optional[Any] = None
 
 
 class RollbackRequest(BaseModel):
-    memory_type: str
-    memory_id: str
-    target_version: int
+    memory_type: Literal["fragment", "variable", "table"]
+    memory_id: str = Field(..., min_length=1)
+    target_version: int = Field(..., ge=1)
 
 
 class FeedbackRequest(BaseModel):
-    memory_type: str
-    memory_id: str
-    feedback_type: str  # positive, negative
-    feedback_value: Optional[float] = 1.0
+    memory_type: Literal["fragment", "variable", "table"]
+    memory_id: str = Field(..., min_length=1)
+    feedback_type: Literal["positive", "negative"]
+    feedback_value: Optional[float] = Field(1.0, ge=0.0, le=1.0)
 
 
 class BatchDeleteRequest(BaseModel):
-    memory_ids: List[Dict[str, str]]  # [{"type": "fragment", "id": "1"}, ...]
+    memory_ids: List[Dict[str, str]] = Field(..., min_length=1)  # [{"type": "fragment", "id": "1"}, ...]
 
 
 class AdjustWeightRequest(BaseModel):
-    memory_type: str
-    memory_id: str
-    new_weight: float
+    memory_type: Literal["fragment", "variable", "table"]
+    memory_id: str = Field(..., min_length=1)
+    new_weight: float = Field(..., ge=0.0, le=2.0)
 
 
 # Task 22: 版本控制 API
