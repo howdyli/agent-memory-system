@@ -8,8 +8,8 @@ Memory Observability API 路由
 """
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from typing import Optional, Any, Dict, List
+from pydantic import BaseModel, Field
+from typing import Optional, Any, Dict, List, Literal
 
 import sys
 import os
@@ -40,18 +40,18 @@ router = APIRouter(tags=["memory-observability"])
 # ============================================================
 
 class AccuracyEvalRequest(BaseModel):
-    memory_id: str
-    memory_type: str = "fragment"
+    memory_id: str = Field(..., min_length=1)
+    memory_type: Literal["fragment", "variable", "table"] = "fragment"
     conversation_text: Optional[str] = None
 
 
 class RelevanceEvalRequest(BaseModel):
-    query: str
-    fragments: List[Dict[str, Any]]
+    query: str = Field(..., min_length=1)
+    fragments: List[Dict[str, Any]] = Field(..., min_length=1)
 
 
 class BatchEvalRequest(BaseModel):
-    limit: int = 10
+    limit: int = Field(10, ge=1, le=100)
 
 
 # ============================================================

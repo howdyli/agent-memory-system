@@ -61,13 +61,15 @@ class OpenAIBackend(LLMBackend):
         self._client = None
 
     def _get_client(self):
-        """懒初始化并复用 OpenAI client，设置 30s 超时"""
+        """懒初始化并复用 OpenAI client，超时从配置读取"""
         if self._client is None:
             import openai
+            from app.core.config import get_settings
+            timeout = get_settings().LLM_TIMEOUT_SECONDS
             self._client = openai.OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                timeout=30.0,
+                timeout=float(timeout),
             )
         return self._client
 
@@ -392,7 +394,9 @@ class LocalModelBackend(LLMBackend):
             )
 
             try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
+                from app.core.config import get_settings
+                _llm_timeout = get_settings().LLM_TIMEOUT_SECONDS
+                with urllib.request.urlopen(req, timeout=_llm_timeout) as resp:
                     result = json.loads(resp.read().decode("utf-8"))
                     return {
                         "success": True,
@@ -478,7 +482,7 @@ def _mask_api_key(key: Optional[str]) -> str:
     return f"{key[:4]}{'*' * (len(key) - 8)}{key[-4:]}"
 
 
-def _ensure_llm_config_table():
+def _ensure_llm_config_table() -> None:
     """确保 LLM 配置表存在"""
     db = get_db_client()
     db.execute('''

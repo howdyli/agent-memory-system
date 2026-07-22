@@ -10,8 +10,8 @@ Graph Memory API 路由
 """
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel
-from typing import Optional, Any, Dict, List
+from pydantic import BaseModel, Field
+from typing import Optional, Any, Dict, List, Literal
 
 import sys
 import os
@@ -44,6 +44,7 @@ from app.services.graph_memory_service import (
 )
 from app.core.auth import Principal, get_current_principal
 from app.core.rbac import Perm, require_permission
+from app.core.errors import handle_service_result
 
 logger = logging.getLogger(__name__)
 
@@ -55,79 +56,72 @@ router = APIRouter(tags=["memory-graph"])
 # ============================================================
 
 class EntityCreateRequest(BaseModel):
-    name: str
-    entity_type: str  # person, organization, location, event
+    name: str = Field(..., min_length=1, max_length=200)
+    entity_type: Literal["person", "organization", "location", "event", "concept"]
     aliases: Optional[List[str]] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
 class EntityUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    entity_type: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    entity_type: Optional[Literal["person", "organization", "location", "event", "concept"]] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
 class EntityMergeRequest(BaseModel):
-    target_id: int
-    source_ids: List[int]
+    target_id: int = Field(..., ge=1)
+    source_ids: List[int] = Field(..., min_length=1)
 
 
 class RelationshipCreateRequest(BaseModel):
-    source_name: str
-    target_name: str
-    relation_type: str
-    source_type: Optional[str] = "person"
-    target_type: Optional[str] = "organization"
-    relation_subtype: Optional[str] = None
+    source_name: str = Field(..., min_length=1, max_length=200)
+    target_name: str = Field(..., min_length=1, max_length=200)
+    relation_type: str = Field(..., min_length=1, max_length=100)
+    source_type: Literal["person", "organization", "location", "event", "concept"] = "person"
+    target_type: Literal["person", "organization", "location", "event", "concept"] = "organization"
+    relation_subtype: Optional[str] = Field(None, max_length=100)
     properties: Optional[Dict[str, Any]] = None
-    confidence: Optional[float] = 0.5
+    confidence: float = Field(0.5, ge=0.0, le=1.0)
     valid_from: Optional[str] = None
     extraction_source: Optional[str] = "manual"
 
 
 class RelationshipUpdateRequest(BaseModel):
     properties: Optional[Dict[str, Any]] = None
-    confidence: Optional[float] = None
-    relation_subtype: Optional[str] = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    relation_subtype: Optional[str] = Field(None, max_length=100)
 
 
 class RelationshipDeactivateRequest(BaseModel):
-    reason: Optional[str] = "ended"
+    reason: Optional[str] = Field("ended", max_length=200)
 
 
 class ExtractRequest(BaseModel):
-    text: str
+    text: str = Field(..., min_length=1, max_length=10000)
 
 
 # ============================================================
 # 1. 实体管理 API
 # ============================================================
 
-@router.post("/memory/graph/entities")
+@router.post("/memory/graph/entities", summary="创建实体", description="创建或获取知识图谱实体（人物/组织/地点/事件/概念）")
+@handle_service_result
 async def create_entity(
     request: EntityCreateRequest,
     principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """创建或获取实体"""
-    try:
-        result = ensure_entity(
-            user_id=principal.user_id,
-            name=request.name,
-            entity_type=request.entity_type,
-            aliases=request.aliases,
-            metadata=request.metadata,
-            workspace_id=principal.workspace_id,
-        )
-        if isinstance(result, dict) and result.get("success") is False:
-            raise HTTPException(status_code=400, detail=result.get("error"))
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return ensure_entity(
+        user_id=principal.user_id,
+        name=request.name,
+        entity_type=request.entity_type,
+        aliases=request.aliases,
+        metadata=request.metadata,
+        workspace_id=principal.workspace_id,
+    )
 
 
-@router.get("/memory/graph/entities")
+@router.get("/memory/graph/entities", summary="搜索实体", description="按关键词搜索实体，支持类型过滤")
 async def search_entities_api(
     query: str = Query("", description="搜索关键词，为空则返回所有"),
     entity_type: Optional[str] = Query(None, description="过滤实体类型"),
@@ -210,59 +204,45 @@ async def delete_entity_api(
 
 
 @router.post("/memory/graph/entities/merge")
+@handle_service_result
 async def merge_entities_api(
     request: EntityMergeRequest,
     principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """合并重复实体"""
-    try:
-        result = merge_entities(
-            user_id=principal.user_id,
-            target_id=request.target_id,
-            source_ids=request.source_ids,
-            workspace_id=principal.workspace_id,
-        )
-        if not result.get("success"):
-            raise HTTPException(status_code=400, detail=result.get("error"))
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return merge_entities(
+        user_id=principal.user_id,
+        target_id=request.target_id,
+        source_ids=request.source_ids,
+        workspace_id=principal.workspace_id,
+    )
 
 
 # ============================================================
 # 2. 关系管理 API
 # ============================================================
 
-@router.post("/memory/graph/relationships")
+@router.post("/memory/graph/relationships", summary="创建关系", description="创建两个实体之间的关系（支持时序属性和置信度）")
+@handle_service_result
 async def create_relationship(
     request: RelationshipCreateRequest,
     principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
 ):
     """创建两个实体之间的关系"""
-    try:
-        result = add_relationship(
-            user_id=principal.user_id,
-            source_name=request.source_name,
-            target_name=request.target_name,
-            relation_type=request.relation_type,
-            source_type=request.source_type,
-            target_type=request.target_type,
-            relation_subtype=request.relation_subtype,
-            properties=request.properties,
-            confidence=request.confidence,
-            valid_from=request.valid_from,
-            extraction_source=request.extraction_source,
-            workspace_id=principal.workspace_id,
-        )
-        if not result.get("success"):
-            raise HTTPException(status_code=400, detail=result.get("error"))
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return add_relationship(
+        user_id=principal.user_id,
+        source_name=request.source_name,
+        target_name=request.target_name,
+        relation_type=request.relation_type,
+        source_type=request.source_type,
+        target_type=request.target_type,
+        relation_subtype=request.relation_subtype,
+        properties=request.properties,
+        confidence=request.confidence,
+        valid_from=request.valid_from,
+        extraction_source=request.extraction_source,
+        workspace_id=principal.workspace_id,
+    )
 
 
 @router.get("/memory/graph/relationships")
@@ -355,7 +335,7 @@ async def deactivate_relationship_api(
 # 3. 图遍历 API
 # ============================================================
 
-@router.get("/memory/graph/neighbors")
+@router.get("/memory/graph/neighbors", summary="图遍历", description="查询指定实体的邻居节点，支持 1-3 跳深度遍历")
 async def get_neighbors_api(
     entity_id: Optional[int] = Query(None, description="实体 ID（优先使用）"),
     entity_name: Optional[str] = Query(None, description="实体名称（entity_id 为空时使用）"),

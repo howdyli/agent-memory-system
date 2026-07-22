@@ -344,25 +344,6 @@ async def update_fragment_api(
         raise AppException(str(e))
 
 
-@router.delete("/{fragment_id}")
-async def delete_fragment_api(
-    fragment_id: int,
-    principal: Principal = Depends(require_permission(Perm.MEMORY_DELETE))
-):
-    """删除记忆片段"""
-    try:
-        result = delete_fragment(principal.user_id, fragment_id, principal.workspace_id)
-        if result["success"]:
-            return result
-        else:
-            raise ValidationError(result.get("error", "Failed to delete fragment"))
-    except AppException:
-        raise
-    except Exception as e:
-        logger.error(f"✗ 删除片段失败: {e}")
-        raise AppException(str(e))
-
-
 @router.delete("/batch")
 async def batch_delete_fragments_api(
     request: BatchDeleteFragmentsRequest,
@@ -388,6 +369,25 @@ async def batch_delete_fragments_api(
         raise
     except Exception as e:
         logger.error(f"✗ 批量删除片段失败: {e}")
+        raise AppException(str(e))
+
+
+@router.delete("/{fragment_id}")
+async def delete_fragment_api(
+    fragment_id: int,
+    principal: Principal = Depends(require_permission(Perm.MEMORY_DELETE))
+):
+    """删除记忆片段"""
+    try:
+        result = delete_fragment(principal.user_id, fragment_id, principal.workspace_id)
+        if result["success"]:
+            return result
+        else:
+            raise ValidationError(result.get("error", "Failed to delete fragment"))
+    except AppException:
+        raise
+    except Exception as e:
+        logger.error(f"✗ 删除片段失败: {e}")
         raise AppException(str(e))
 
 

@@ -111,7 +111,7 @@ def estimate_tokens(text: str) -> int:
 # 对话历史管理器（SQLite 持久化）
 # ============================================================
 
-def _ensure_conversation_tables():
+def _ensure_conversation_tables() -> None:
     """确保对话历史相关表存在"""
     db = get_db_client()
     db.execute('''

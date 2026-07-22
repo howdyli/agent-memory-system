@@ -191,4 +191,67 @@ __all__ = [
     "ForbiddenError",
     "ValidationError",
     "AuthError",
+    "handle_service_result",
 ]
+
+
+# ============================================================
+# API 错误处理装饰器
+# ============================================================
+
+from functools import wraps
+from fastapi import HTTPException
+
+
+def handle_service_result(func):
+    """
+    消除 API 层重复的 try/except/HTTPException 模式。
+
+    自动处理 service 函数返回的 {"success": False, "error": "..."} 格式，
+    将其转换为适当的 HTTP 异常。
+
+    用法：
+        @router.post("/items")
+        @handle_service_result
+        async def create_item(request: ItemRequest, principal: ...):
+            return create_item_service(user_id=principal.user_id, ...)
+
+    等价于：
+        @router.post("/items")
+        async def create_item(request: ItemRequest, principal: ...):
+            try:
+                result = create_item_service(user_id=principal.user_id, ...)
+                if not result.get("success"):
+                    raise HTTPException(status_code=400, detail=result.get("error"))
+                return result
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+    """
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            result = await func(*args, **kwargs)
+            # 检查 service 返回的 success 字段
+            if isinstance(result, dict) and result.get("success") is False:
+                error_msg = result.get("error", "Service error")
+                # 根据错误内容推断状态码
+                status_code = 400
+                error_lower = str(error_msg).lower()
+                if "not found" in error_lower or "不存在" in error_msg or "未找到" in error_msg:
+                    status_code = 404
+                elif "conflict" in error_lower or "冲突" in error_msg or "已存在" in error_msg:
+                    status_code = 409
+                elif "forbidden" in error_lower or "无权" in error_msg or "权限" in error_msg:
+                    status_code = 403
+                raise HTTPException(status_code=status_code, detail=error_msg)
+            return result
+        except HTTPException:
+            raise
+        except AppException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return wrapper

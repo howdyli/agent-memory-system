@@ -1082,20 +1082,26 @@ def analyze_search(
             for f in base_frags[:top_k]
         ]
 
-        # 权重敏感度：每个权重 ±0.1，统计 top-k 排名变化数
+        # 权重敏感度：每个权重 ±0.1，在本地重算融合分排名（无需重新搜索）
         base_weights = get_weights()
         weight_sensitivity: Dict[str, Any] = {}
         for wk in WEIGHT_KEYS:
             entry = {}
             for delta_w, tag in ((0.1, "plus"), (-0.1, "minus")):
                 new_val = max(0.0, min(1.0, base_weights[wk] + delta_w))
-                perturbed = hybrid_search(
-                    user_id=user_id, query=query, workspace_id=workspace_id,
-                    limit=max(top_k, 30), **{wk: new_val},
+                # 使用已有的 signal_breakdown 在本地重算融合分
+                perturbed_weights = {**base_weights, wk: new_val}
+                reranked = sorted(
+                    base_frags,
+                    key=lambda f: (
+                        f.get("_signal_breakdown", {}).get("semantic", 0) * perturbed_weights.get("alpha", 0)
+                        + f.get("_signal_breakdown", {}).get("bm25", 0) * perturbed_weights.get("beta", 0)
+                        + f.get("_signal_breakdown", {}).get("entity", 0) * perturbed_weights.get("gamma", 0)
+                        + f.get("_signal_breakdown", {}).get("recency", 0) * perturbed_weights.get("delta", 0)
+                    ),
+                    reverse=True,
                 )
-                p_top_ids = [
-                    f.get("id") for f in perturbed.get("fragments", [])[:top_k]
-                ] if perturbed.get("success") else []
+                p_top_ids = [f.get("id") for f in reranked[:top_k]]
                 changed = sum(
                     1 for i in range(min(len(base_top_ids), len(p_top_ids)))
                     if base_top_ids[i] != p_top_ids[i]

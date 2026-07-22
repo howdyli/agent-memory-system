@@ -206,11 +206,37 @@ class SQLiteClient:
                 ("lifecycle_status", "TEXT DEFAULT 'active'"),
                 ("last_recalled_at", "TIMESTAMP"),
                 ("cold_at", "TIMESTAMP"),
+                ("vector_synced", "INTEGER DEFAULT 0"),
             ]:
                 try:
                     cursor.execute(f"ALTER TABLE memory_fragments ADD COLUMN {col} {col_type}")
                 except Exception:
                     pass
+
+            # ============================================================
+            # 向量写入 Outbox 表（跨存储事务一致性）
+            # ============================================================
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS vector_outbox (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fragment_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    workspace_id TEXT,
+                    fragment_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    importance_score REAL DEFAULT 0.5,
+                    expires_at TEXT,
+                    retry_count INTEGER DEFAULT 0,
+                    next_retry_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (fragment_id) REFERENCES memory_fragments(id)
+                )
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_vector_outbox_pending
+                ON vector_outbox(next_retry_at)
+                WHERE retry_count < 5
+            ''')
 
             # ============================================================
             # Graph Memory 知识图谱表

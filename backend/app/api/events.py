@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -56,7 +56,7 @@ async def list_events(
     event_bus = get_event_bus()
 
     event_types = [event_type] if event_type else None
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     events = await event_bus.get_recent_events(
         event_types=event_types,

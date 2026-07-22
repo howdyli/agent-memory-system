@@ -58,7 +58,7 @@ class BatchExtractRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     extraction_id: str
-    rating: str  # "correct" | "partial" | "incorrect"
+    rating: Literal["correct", "partial", "incorrect"]
     correction: Optional[str] = None
     source_text: Optional[str] = None
     extracted_data: Optional[Dict[str, Any]] = None
@@ -309,8 +309,6 @@ async def get_memory_summary(
 # 抽取反馈 / 模板 / 预览 API
 # ============================================================
 
-VALID_RATINGS = {"correct", "partial", "incorrect"}
-
 
 @router.post("/feedback")
 async def submit_feedback(
@@ -324,12 +322,6 @@ async def submit_feedback(
     存储到数据库用于后续分析。
     """
     try:
-        if request.rating not in VALID_RATINGS:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"rating 必须为 {VALID_RATINGS} 之一",
-            )
-
         import json
         from app.core.db_client import get_db_client
         db = get_db_client()

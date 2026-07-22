@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.db_client import get_db_client
 from app.core.tracing import get_tracer
+from app.core.cache import ttl_cache
 
 # ============================================================
 # 支持的实体类型
@@ -77,7 +78,7 @@ def _ws_sql(workspace_id: Optional[int], col: str = "workspace_id") -> tuple:
     return f"{col} = ?", (workspace_id,)
 
 
-def _ensure_graph_tables():
+def _ensure_graph_tables() -> None:
     """确保图谱相关表存在（首次使用保障）"""
     db = get_db_client()
     for sql in [
@@ -1881,6 +1882,7 @@ def update_entity(
         return {"success": False, "error": str(e)}
 
 
+@ttl_cache(ttl=60, key_prefix="graph_stats")
 def get_graph_statistics(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     """
     获取用户的知识图谱统计信息。

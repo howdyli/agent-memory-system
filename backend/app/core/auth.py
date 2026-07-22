@@ -9,7 +9,7 @@ import secrets
 import os
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -138,7 +138,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_access_token(user_id: int, username: str) -> str:
     """创建 JWT Access Token"""
-    expiration = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    expiration = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
     payload = {
         "user_id": user_id,
         "username": username,

@@ -9,7 +9,7 @@ import json
 import logging
 import secrets
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -29,7 +29,7 @@ _webhook_worker_task: Optional[asyncio.Task] = None
 _webhook_worker_running = False
 
 
-def _ensure_tables():
+def _ensure_tables() -> None:
     """确保 webhooks / webhook_deliveries 表存在（SQLite 开发环境）"""
     db = get_db_client()
     db.execute("""
@@ -102,7 +102,7 @@ def create_webhook(
         "workspace_id": workspace_id,
         "description": description,
         "active": True,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -269,7 +269,7 @@ async def deliver_webhook(webhook: Dict[str, Any], event: MemoryEvent) -> Dict[s
         delivery_record["attempt"] = 1
         # 设置首次重试时间
         delivery_record["next_retry_at"] = (
-            datetime.utcnow() + timedelta(seconds=RETRY_INTERVALS[0])
+            datetime.now(timezone.utc) + timedelta(seconds=RETRY_INTERVALS[0])
         ).isoformat()
 
     # 写入投递记录
@@ -289,7 +289,7 @@ async def deliver_webhook(webhook: Dict[str, Any], event: MemoryEvent) -> Dict[s
     return delivery_record
 
 
-def _save_delivery(record: Dict[str, Any]):
+def _save_delivery(record: Dict[str, Any]) -> None:
     """保存投递记录"""
     _ensure_tables()
     db = get_db_client()
@@ -327,7 +327,7 @@ async def retry_failed_deliveries() -> int:
     """
     _ensure_tables()
     db = get_db_client()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     rows = db.execute(
         """SELECT d.*, w.url, w.secret, w.event_types
@@ -380,7 +380,7 @@ async def retry_failed_deliveries() -> int:
             next_retry = None
         elif new_attempt <= MAX_RETRY_ATTEMPTS:
             interval = RETRY_INTERVALS[min(new_attempt - 1, len(RETRY_INTERVALS) - 1)]
-            next_retry = (datetime.utcnow() + timedelta(seconds=interval)).isoformat()
+            next_retry = (datetime.now(timezone.utc) + timedelta(seconds=interval)).isoformat()
         else:
             next_retry = None  # 放弃重试
 
@@ -460,7 +460,7 @@ async def dispatch_event_to_webhooks(event: MemoryEvent) -> int:
 # 后台 Worker
 # ============================================================
 
-def start_webhook_worker():
+def start_webhook_worker() -> None:
     """启动 Webhook 投递重试 worker"""
     global _webhook_worker_task, _webhook_worker_running
 
@@ -483,7 +483,7 @@ def start_webhook_worker():
     logger.info("Webhook retry worker started")
 
 
-def stop_webhook_worker():
+def stop_webhook_worker() -> None:
     """停止 Webhook 投递重试 worker"""
     global _webhook_worker_task, _webhook_worker_running
 

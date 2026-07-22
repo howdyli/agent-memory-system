@@ -98,19 +98,32 @@ def process_user_input(user_id: int,
         
         total_count = len(variables) + len(facts) + len(preferences) + len(plans)
         stored_count = llm_result.get("stored_count", 0)
-        
-        logger.info(f"✓ LLM 抽取完成: {total_count} 条记忆, 存储 {stored_count} 条")
-        
+        dedup_skipped = llm_result.get("dedup_skipped", 0)
+        skipped_count = total_count - stored_count
+
+        # 构建 skip_reasons 说明存储差异原因
+        skip_reasons = []
+        if dedup_skipped > 0:
+            skip_reasons.append(f"{dedup_skipped} 条因去重检测被跳过")
+        empty_skipped = skipped_count - dedup_skipped
+        if empty_skipped > 0:
+            skip_reasons.append(f"{empty_skipped} 条因关键字段为空被跳过")
+
+        logger.info(f"✓ LLM 抽取完成: {total_count} 条记忆, 存储 {stored_count} 条, 跳过 {skipped_count} 条")
+
         return {
             "success": True,
             "extracted": extracted_dict,
             "count": total_count,
             "stored_count": stored_count,
+            "skipped_count": skipped_count,
+            "dedup_skipped": dedup_skipped,
+            "skip_reasons": skip_reasons if skip_reasons else None,
             "variables": variables,
             "facts": facts,
             "preferences": preferences,
             "plans": plans,
-            "message": f"LLM extracted and stored {stored_count} memories"
+            "message": f"LLM extracted and stored {stored_count} memories" + (f" ({', '.join(skip_reasons)})" if skip_reasons else "")
         }
         
     except Exception as e:

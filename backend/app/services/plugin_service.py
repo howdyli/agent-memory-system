@@ -187,7 +187,7 @@ BUILTIN_PLUGINS = {
 _plugin_instances: Dict[str, MemoryStoragePlugin] = {}
 
 
-def _ensure_plugin_tables():
+def _ensure_plugin_tables() -> None:
     """确保插件表存在"""
     db = get_db_client()
     db.execute('''

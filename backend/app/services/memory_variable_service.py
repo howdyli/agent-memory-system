@@ -8,7 +8,7 @@ import logging
 import json
 import re
 from typing import Optional, Any, Dict, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -278,7 +278,7 @@ def list_memory_variables_detailed(user_id: int,
             return []
         
         result = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for var_name in var_names:
             value = get_memory_variable(user_id, var_name, session_id, workspace_id=workspace_id)
             if value is None:
