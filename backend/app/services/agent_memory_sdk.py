@@ -20,9 +20,14 @@ class AgentMemoryClient:
     内部委托给 agent_memory.MemoryClient（嵌入模式）。
     """
 
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: int, workspace_id: Optional[int] = None):
         self.user_id = user_id
-        self._client = _MemoryClient(mode="embedded", user_id=user_id)
+        self.workspace_id = workspace_id
+        self._client = _MemoryClient(
+            mode="embedded",
+            user_id=user_id,
+            workspace_id=str(workspace_id) if workspace_id is not None else None,
+        )
 
     # ================================================================
     # 记忆召回
@@ -124,4 +129,5 @@ class AgentMemoryClient:
             user_message=user_message,
             system_prompt=system_prompt,
             session_id=session_id,
+            workspace_id=self.workspace_id,
         )

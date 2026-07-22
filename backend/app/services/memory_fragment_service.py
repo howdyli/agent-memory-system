@@ -582,9 +582,9 @@ def create_fragment(user_id: int,
         
         # 插入记忆片段
         fragment_id = db.execute('''
-            INSERT INTO memory_fragments (user_id, fragment_type, content, ttl, importance_score, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, fragment_type, content, ttl, importance_score, expires_at))
+            INSERT INTO memory_fragments (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at))
         
         # 同时存储到向量数据库（用于语义搜索）
         # 写后校验：写入成功后立即查询确认，失败则记录到补偿队列
@@ -597,6 +597,7 @@ def create_fragment(user_id: int,
                     metadata={
                         "fragment_id": str(fragment_id),
                         "user_id": str(user_id),
+                        "workspace_id": str(workspace_id) if workspace_id is not None else "",
                         "fragment_type": fragment_type,
                         "importance_score": str(importance_score),
                         "expires_at": expires_at or "",
@@ -666,10 +667,16 @@ def get_fragment(user_id: int, fragment_id: int, workspace_id: Optional[int] = N
         db = get_db_client()
         
         # 查询片段
-        rows = db.execute(
-            'SELECT * FROM memory_fragments WHERE id = ? AND user_id = ?',
-            (fragment_id, user_id)
-        )
+        if workspace_id is None:
+            rows = db.execute(
+                'SELECT * FROM memory_fragments WHERE id = ? AND user_id = ? AND workspace_id IS NULL',
+                (fragment_id, user_id)
+            )
+        else:
+            rows = db.execute(
+                'SELECT * FROM memory_fragments WHERE id = ? AND user_id = ? AND workspace_id = ?',
+                (fragment_id, user_id, workspace_id)
+            )
         
         if not rows:
             return {
@@ -727,7 +734,7 @@ def update_fragment(user_id: int,
         db = get_db_client()
         
         # 检查片段是否存在
-        existing = get_fragment(user_id, fragment_id)
+        existing = get_fragment(user_id, fragment_id, workspace_id)
         if not existing["success"]:
             return existing
         
@@ -763,11 +770,18 @@ def update_fragment(user_id: int,
         
         params.append(fragment_id)
         params.append(user_id)
-        
-        db.execute(
-            f'UPDATE memory_fragments SET {", ".join(updates)} WHERE id = ? AND user_id = ?',
-            tuple(params)
-        )
+
+        if workspace_id is None:
+            db.execute(
+                f'UPDATE memory_fragments SET {", ".join(updates)} WHERE id = ? AND user_id = ? AND workspace_id IS NULL',
+                tuple(params)
+            )
+        else:
+            params.append(workspace_id)
+            db.execute(
+                f'UPDATE memory_fragments SET {", ".join(updates)} WHERE id = ? AND user_id = ? AND workspace_id = ?',
+                tuple(params)
+            )
         
         logger.info(f"✓ 更新记忆片段: {fragment_id}")
         
@@ -810,10 +824,16 @@ def delete_fragment(user_id: int, fragment_id: int, workspace_id: Optional[int] 
     try:
         db = get_db_client()
         
-        result = db.execute(
-            'DELETE FROM memory_fragments WHERE id = ? AND user_id = ?',
-            (fragment_id, user_id)
-        )
+        if workspace_id is None:
+            result = db.execute(
+                'DELETE FROM memory_fragments WHERE id = ? AND user_id = ? AND workspace_id IS NULL',
+                (fragment_id, user_id)
+            )
+        else:
+            result = db.execute(
+                'DELETE FROM memory_fragments WHERE id = ? AND user_id = ? AND workspace_id = ?',
+                (fragment_id, user_id, workspace_id)
+            )
         
         # 同时从向量数据库删除
         try:
@@ -867,26 +887,28 @@ def list_fragments(user_id: int,
         db = get_db_client()
         
         # 1. 清理过期片段
-        cleanup_expired_fragments(user_id)
+        cleanup_expired_fragments(user_id, workspace_id)
         
         # 2. 查询片段
+        ws_clause = 'workspace_id IS NULL' if workspace_id is None else 'workspace_id = ?'
+        ws_params = () if workspace_id is None else (workspace_id,)
         if fragment_type:
             rows = db.execute(
-                'SELECT * FROM memory_fragments WHERE user_id = ? AND fragment_type = ? ORDER BY importance_score DESC, created_at DESC LIMIT ? OFFSET ?',
-                (user_id, fragment_type, limit, offset)
+                f'SELECT * FROM memory_fragments WHERE user_id = ? AND {ws_clause} AND fragment_type = ? ORDER BY importance_score DESC, created_at DESC LIMIT ? OFFSET ?',
+                (user_id, *ws_params, fragment_type, limit, offset)
             )
             count_rows = db.execute(
-                'SELECT COUNT(*) as total FROM memory_fragments WHERE user_id = ? AND fragment_type = ?',
-                (user_id, fragment_type)
+                f'SELECT COUNT(*) as total FROM memory_fragments WHERE user_id = ? AND {ws_clause} AND fragment_type = ?',
+                (user_id, *ws_params, fragment_type)
             )
         else:
             rows = db.execute(
-                'SELECT * FROM memory_fragments WHERE user_id = ? ORDER BY importance_score DESC, created_at DESC LIMIT ? OFFSET ?',
-                (user_id, limit, offset)
+                f'SELECT * FROM memory_fragments WHERE user_id = ? AND {ws_clause} ORDER BY importance_score DESC, created_at DESC LIMIT ? OFFSET ?',
+                (user_id, *ws_params, limit, offset)
             )
             count_rows = db.execute(
-                'SELECT COUNT(*) as total FROM memory_fragments WHERE user_id = ?',
-                (user_id,)
+                f'SELECT COUNT(*) as total FROM memory_fragments WHERE user_id = ? AND {ws_clause}',
+                (user_id, *ws_params)
             )
         
         fragments = [dict(row) for row in rows] if rows else []
@@ -924,16 +946,18 @@ def cleanup_expired_fragments(user_id: Optional[int] = None, workspace_id: Optio
         now = datetime.now().isoformat()
         
         if user_id:
+            ws_clause = 'workspace_id IS NULL' if workspace_id is None else 'workspace_id = ?'
+            ws_params = () if workspace_id is None else (workspace_id,)
             # 查找过期片段（用于向量数据库清理）
             expired = db.execute(
-                'SELECT id FROM memory_fragments WHERE user_id = ? AND expires_at IS NOT NULL AND expires_at < ?',
-                (user_id, now)
+                f'SELECT id FROM memory_fragments WHERE user_id = ? AND {ws_clause} AND expires_at IS NOT NULL AND expires_at < ?',
+                (user_id, *ws_params, now)
             )
             
             # 清理 SQLite
             result = db.execute(
-                'DELETE FROM memory_fragments WHERE user_id = ? AND expires_at IS NOT NULL AND expires_at < ?',
-                (user_id, now)
+                f'DELETE FROM memory_fragments WHERE user_id = ? AND {ws_clause} AND expires_at IS NOT NULL AND expires_at < ?',
+                (user_id, *ws_params, now)
             )
             
             # 清理向量数据库（通过 fragment_id 过滤）
@@ -1032,10 +1056,14 @@ def search_fragments_by_semantic(user_id: int,
         
         # 语义搜索（使用 where 条件过滤用户）
         # 注意：ChromaDB 的 where 条件需要值是字符串
+        if workspace_id is None:
+            _where = {"user_id": str(user_id)}
+        else:
+            _where = {"$and": [{"user_id": str(user_id)}, {"workspace_id": str(workspace_id)}]}
         results = chroma.search_embeddings(
             query_text=query,
             n_results=top_k,
-            where={"user_id": str(user_id)}
+            where=_where
         )
         
         if not results:

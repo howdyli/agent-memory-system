@@ -31,7 +31,7 @@ def _install_mocks(monkeypatch, semantic_ids, bm25_ids, fragments):
     """安装语义/BM25/DB/rerank/boost/recency 桩，返回调用计数器。"""
     counters = {"semantic": 0, "bm25": 0}
 
-    def fake_semantic(user_id, query, top_k=None, threshold=None):
+    def fake_semantic(user_id, query, top_k=None, threshold=None, workspace_id=None):
         counters["semantic"] += 1
         return {
             "success": True,
@@ -40,7 +40,7 @@ def _install_mocks(monkeypatch, semantic_ids, bm25_ids, fragments):
             ],
         }
 
-    def fake_bm25(query, user_id, top_k=None):
+    def fake_bm25(query, user_id, top_k=None, workspace_id=None):
         counters["bm25"] += 1
         return {
             "success": True,

@@ -17,18 +17,41 @@ from app.core.redis_client import get_redis_client
 from app.core.tracing import get_tracer
 
 
-def _build_key(user_id: int, key: str, session_id: Optional[str] = None) -> str:
+def _scope(user_id: int, workspace_id: Optional[int] = None) -> str:
+    """构建作用域前缀。
+
+    - 有 workspace 时：{user_id}:w{workspace_id}（按工作空间隔离）
+    - 无 workspace 时：{user_id}（向后兼容）
+    """
+    if workspace_id is not None:
+        return f"{user_id}:w{workspace_id}"
+    return str(user_id)
+
+
+def _build_key(user_id: int, key: str, session_id: Optional[str] = None,
+               workspace_id: Optional[int] = None) -> str:
     """
     构建 Redis Key
     
     格式：
-    - 全局变量：memory:var:{user_id}:{key}
-    - 会话变量：memory:var:{user_id}:{session_id}:{key}
+    - 全局变量：memory:var:{scope}:{key}
+    - 会话变量：memory:var:{scope}:{session_id}:{key}
+    其中 scope = {user_id}:w{workspace_id} 或 {user_id}
     """
+    scope = _scope(user_id, workspace_id)
     if session_id:
-        return f"memory:var:{user_id}:{session_id}:{key}"
+        return f"memory:var:{scope}:{session_id}:{key}"
     else:
-        return f"memory:var:{user_id}:{key}"
+        return f"memory:var:{scope}:{key}"
+
+
+def _build_index_key(user_id: int, session_id: Optional[str] = None,
+                     workspace_id: Optional[int] = None) -> str:
+    """构建变量索引 Key（同样按 workspace 隔离）"""
+    scope = _scope(user_id, workspace_id)
+    if session_id:
+        return f"memory:var:index:{scope}:{session_id}"
+    return f"memory:var:index:{scope}"
 
 
 def set_memory_variable(user_id: int,
@@ -58,7 +81,7 @@ def set_memory_variable(user_id: int,
         redis_client = get_redis_client()
         
         # 构建 Key
-        redis_key = _build_key(user_id, key, session_id)
+        redis_key = _build_key(user_id, key, session_id, workspace_id)
         
         # 序列化值
         if isinstance(value, (dict, list)):
@@ -77,7 +100,7 @@ def set_memory_variable(user_id: int,
             redis_client.persist(redis_key)
         
         # 记录到变量索引（用于列出所有变量）
-        _update_variable_index(user_id, key, session_id)
+        _update_variable_index(user_id, key, session_id, workspace_id)
         
         logger.debug(f"✓ 设置记忆变量：{redis_key} = {value_str[:50]}...")
         return True
@@ -113,7 +136,7 @@ def get_memory_variable(user_id: int,
         redis_client = get_redis_client()
         
         # 构建 Key
-        redis_key = _build_key(user_id, key, session_id)
+        redis_key = _build_key(user_id, key, session_id, workspace_id)
         
         # 从 Redis 读取
         value_str = redis_client.get(redis_key)
@@ -121,7 +144,7 @@ def get_memory_variable(user_id: int,
         if value_str is None:
             # 如果会话级别变量不存在，尝试查找全局变量
             if session_id:
-                global_key = _build_key(user_id, key, None)
+                global_key = _build_key(user_id, key, None, workspace_id)
                 value_str = redis_client.get(global_key)
                 if value_str is None:
                     return default
@@ -162,14 +185,14 @@ def delete_memory_variable(user_id: int,
         redis_client = get_redis_client()
         
         # 构建 Key
-        redis_key = _build_key(user_id, key, session_id)
+        redis_key = _build_key(user_id, key, session_id, workspace_id)
         
         # 从 Redis 删除
         result = redis_client.delete(redis_key)
         
         # 从变量索引中移除
         if result:
-            _remove_from_variable_index(user_id, key, session_id)
+            _remove_from_variable_index(user_id, key, session_id, workspace_id)
             logger.debug(f"✓ 删除记忆变量：{redis_key}")
         
         return result > 0
@@ -196,10 +219,7 @@ def list_memory_variables(user_id: int,
         redis_client = get_redis_client()
         
         # 索引 Key
-        if session_id:
-            index_key = f"memory:var:index:{user_id}:{session_id}"
-        else:
-            index_key = f"memory:var:index:{user_id}"
+        index_key = _build_index_key(user_id, session_id, workspace_id)
         
         # 从索引中读取所有变量名
         index_str = redis_client.get(index_key)
@@ -219,7 +239,7 @@ def list_memory_variables(user_id: int,
         # 读取所有变量值
         result = {}
         for var_name in var_names:
-            value = get_memory_variable(user_id, var_name, session_id)
+            value = get_memory_variable(user_id, var_name, session_id, workspace_id=workspace_id)
             if value is not None:
                 result[var_name] = value
         
@@ -242,10 +262,7 @@ def list_memory_variables_detailed(user_id: int,
     try:
         redis_client = get_redis_client()
         
-        if session_id:
-            index_key = f"memory:var:index:{user_id}:{session_id}"
-        else:
-            index_key = f"memory:var:index:{user_id}"
+        index_key = _build_index_key(user_id, session_id, workspace_id)
         
         index_str = redis_client.get(index_key)
         if not index_str:
@@ -263,11 +280,11 @@ def list_memory_variables_detailed(user_id: int,
         result = []
         now = datetime.utcnow()
         for var_name in var_names:
-            value = get_memory_variable(user_id, var_name, session_id)
+            value = get_memory_variable(user_id, var_name, session_id, workspace_id=workspace_id)
             if value is None:
                 continue
             
-            redis_key = _build_key(user_id, var_name, session_id)
+            redis_key = _build_key(user_id, var_name, session_id, workspace_id)
             remaining = redis_client.ttl(redis_key)
             
             ttl_val = None
@@ -304,7 +321,7 @@ def update_variable_ttl(user_id: int,
     """
     try:
         redis_client = get_redis_client()
-        redis_key = _build_key(user_id, key, session_id)
+        redis_key = _build_key(user_id, key, session_id, workspace_id)
         
         if not redis_client.exists(redis_key):
             return False
@@ -335,11 +352,11 @@ def clear_memory_variables(user_id: int,
         清空的变量数量
     """
     try:
-        variables = list_memory_variables(user_id, session_id)
+        variables = list_memory_variables(user_id, session_id, workspace_id)
         count = 0
         
         for key in variables.keys():
-            if delete_memory_variable(user_id, key, session_id):
+            if delete_memory_variable(user_id, key, session_id, workspace_id):
                 count += 1
         
         logger.info(f"✓ 清空记忆变量：{count} 个")
@@ -411,16 +428,14 @@ def render_template(template: str, variables: Dict[str, Any]) -> str:
 
 
 # 辅助函数
-def _update_variable_index(user_id: int, key: str, session_id: Optional[str] = None):
+def _update_variable_index(user_id: int, key: str, session_id: Optional[str] = None,
+                           workspace_id: Optional[int] = None):
     """更新变量索引（用于 list_memory_variables）"""
     try:
         redis_client = get_redis_client()
         
         # 索引 Key
-        if session_id:
-            index_key = f"memory:var:index:{user_id}:{session_id}"
-        else:
-            index_key = f"memory:var:index:{user_id}"
+        index_key = _build_index_key(user_id, session_id, workspace_id)
         
         # 读取现有索引
         index_str = redis_client.get(index_key)
@@ -446,16 +461,14 @@ def _update_variable_index(user_id: int, key: str, session_id: Optional[str] = N
         logger.error(f"✗ 更新变量索引失败：{e}")
 
 
-def _remove_from_variable_index(user_id: int, key: str, session_id: Optional[str] = None):
+def _remove_from_variable_index(user_id: int, key: str, session_id: Optional[str] = None,
+                                workspace_id: Optional[int] = None):
     """从变量索引中移除"""
     try:
         redis_client = get_redis_client()
         
         # 索引 Key
-        if session_id:
-            index_key = f"memory:var:index:{user_id}:{session_id}"
-        else:
-            index_key = f"memory:var:index:{user_id}"
+        index_key = _build_index_key(user_id, session_id, workspace_id)
         
         # 读取现有索引
         index_str = redis_client.get(index_key)

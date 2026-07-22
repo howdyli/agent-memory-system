@@ -116,6 +116,7 @@ async def create_entity(
             entity_type=request.entity_type,
             aliases=request.aliases,
             metadata=request.metadata,
+            workspace_id=principal.workspace_id,
         )
         if isinstance(result, dict) and result.get("success") is False:
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -135,7 +136,7 @@ async def search_entities_api(
 ):
     """搜索实体"""
     try:
-        result = search_entities(principal.user_id, query, entity_type, limit)
+        result = search_entities(principal.user_id, query, entity_type, limit, workspace_id=principal.workspace_id)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result
@@ -152,7 +153,7 @@ async def get_entity_api(
 ):
     """获取实体详情（含关系计数）"""
     try:
-        result = get_entity(principal.user_id, entity_id)
+        result = get_entity(principal.user_id, entity_id, workspace_id=principal.workspace_id)
         if not result.get("success"):
             raise HTTPException(status_code=404, detail=result.get("error"))
         return result
@@ -176,6 +177,7 @@ async def update_entity_api(
             name=request.name,
             entity_type=request.entity_type,
             metadata=request.metadata,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -196,6 +198,7 @@ async def delete_entity_api(
         result = delete_entity(
             user_id=principal.user_id,
             entity_id=entity_id,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=404, detail=result.get("error"))
@@ -217,6 +220,7 @@ async def merge_entities_api(
             user_id=principal.user_id,
             target_id=request.target_id,
             source_ids=request.source_ids,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -250,6 +254,7 @@ async def create_relationship(
             confidence=request.confidence,
             valid_from=request.valid_from,
             extraction_source=request.extraction_source,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -280,6 +285,7 @@ async def list_relationships_api(
             is_active=is_active,
             limit=limit,
             offset=offset,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -310,6 +316,7 @@ async def update_relationship_api(
             user_id=principal.user_id,
             relationship_id=relationship_id,
             updates=updates,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -333,6 +340,7 @@ async def deactivate_relationship_api(
             user_id=principal.user_id,
             relationship_id=relationship_id,
             reason=reason,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -367,6 +375,7 @@ async def get_neighbors_api(
             relation_type=relation_type,
             depth=depth,
             entity_id=entity_id,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -397,6 +406,7 @@ async def get_relationship_history_api(
             entity2_name=entity2,
             entity1_type=entity1_type,
             entity2_type=entity2_type,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -421,6 +431,7 @@ async def extract_entities_api(
         result = extract_entities_from_text(
             user_id=principal.user_id,
             text=request.text,
+            workspace_id=principal.workspace_id,
         )
         return result
     except HTTPException:
@@ -443,6 +454,7 @@ async def query_graph_api(
         result = query_graph(
             user_id=principal.user_id,
             query=q,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -467,6 +479,7 @@ async def detect_duplicates_api(
         result = detect_duplicate_entities(
             user_id=principal.user_id,
             threshold=threshold,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
@@ -487,7 +500,7 @@ async def get_statistics_api(
 ):
     """获取知识图谱统计信息"""
     try:
-        result = get_graph_statistics(user_id=principal.user_id)
+        result = get_graph_statistics(user_id=principal.user_id, workspace_id=principal.workspace_id)
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result

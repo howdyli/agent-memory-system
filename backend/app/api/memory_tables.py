@@ -116,7 +116,8 @@ async def create_table(
         result = create_memory_table(
             user_id=principal.user_id,
             table_name=request.table_name,
-            fields=request.fields
+            fields=request.fields,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -152,7 +153,8 @@ async def add_record_api(
         result = add_record(
             user_id=principal.user_id,
             table_name=table_name,
-            record=request.record
+            record=request.record,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -191,7 +193,8 @@ async def query_records_api(
             user_id=principal.user_id,
             table_name=table_name,
             limit=limit,
-            offset=offset
+            offset=offset,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -230,7 +233,8 @@ async def update_record_api(
             user_id=principal.user_id,
             table_name=table_name,
             record_id=record_id,
-            updates=request.updates
+            updates=request.updates,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -266,7 +270,8 @@ async def delete_record_api(
         result = delete_record(
             user_id=principal.user_id,
             table_name=table_name,
-            record_id=record_id
+            record_id=record_id,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -296,7 +301,8 @@ async def list_tables_api(
     """
     try:
         result = list_tables(
-            user_id=principal.user_id
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -367,7 +373,8 @@ async def batch_add_records_api(
         result = batch_add_records(
             user_id=principal.user_id,
             table_name=table_name,
-            records=request.records
+            records=request.records,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -403,7 +410,8 @@ async def batch_update_records_api(
         result = batch_update_records(
             user_id=principal.user_id,
             table_name=table_name,
-            updates_list=request.updates_list
+            updates_list=request.updates_list,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -436,7 +444,8 @@ async def drop_table_api(
     try:
         result = drop_table(
             user_id=principal.user_id,
-            table_name=table_name
+            table_name=table_name,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -469,7 +478,8 @@ async def get_table_info_api(
     try:
         table_info = get_table_info(
             user_id=principal.user_id,
-            table_name=table_name
+            table_name=table_name,
+            workspace_id=principal.workspace_id
         )
         
         if table_info:
@@ -514,7 +524,8 @@ async def query_with_filters_api(
             sort_by=request.sort_by,
             sort_order=request.sort_order or "ASC",
             limit=request.limit or 100,
-            offset=request.offset or 0
+            offset=request.offset or 0,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -549,7 +560,8 @@ async def natural_language_query_api(
     try:
         result = natural_language_query(
             user_id=principal.user_id,
-            question=request.question
+            question=request.question,
+            workspace_id=principal.workspace_id
         )
         
         if result["success"]:
@@ -588,14 +600,16 @@ async def natural_language_to_sql_api(
         # 校验表存在性，同时让错误提示更清晰
         table_info = get_table_info(
             user_id=principal.user_id,
-            table_name=table_name
+            table_name=table_name,
+            workspace_id=principal.workspace_id
         )
         if not table_info:
             raise NotFoundError(f"Table '{table_name}' not found")
 
         result = natural_language_to_sql_only(
             user_id=principal.user_id,
-            question=request.question
+            question=request.question,
+            workspace_id=principal.workspace_id
         )
 
         if result["success"]:
@@ -633,7 +647,8 @@ async def execute_sql_api(
         # 校验表存在性
         table_info = get_table_info(
             user_id=principal.user_id,
-            table_name=table_name
+            table_name=table_name,
+            workspace_id=principal.workspace_id
         )
         if not table_info:
             raise NotFoundError(f"Table '{table_name}' not found")

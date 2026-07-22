@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 from app.core.db_client import get_db_client
 
 
+def _physical_table(user_id: int, table_name: str,
+                    workspace_id: Optional[int] = None) -> str:
+    """构建物理表名。
+
+    - 有 workspace 时：memory_{user_id}_w{workspace_id}_{table_name}（按工作空间隔离）
+    - 无 workspace 时：memory_{user_id}_{table_name}（向后兼容）
+    """
+    if workspace_id is not None:
+        return f"memory_{user_id}_w{workspace_id}_{table_name}"
+    return f"memory_{user_id}_{table_name}"
+
+
 def create_memory_table(user_id: int,
                         table_name: str,
                         fields: List[Dict[str, Any]],
@@ -64,11 +76,13 @@ def create_memory_table(user_id: int,
         db.create_memory_table(
             user_id=user_id,
             table_name=table_name,
-            schema=table_schema
+            schema=table_schema,
+            workspace_id=workspace_id
         )
         
         # 2. 动态创建实际的数据表（如果不存在）
         # 使用 SQLite 动态 SQL
+        physical_table = _physical_table(user_id, table_name, workspace_id)
         field_defs = []
         for field in validated_fields:
             field_name = field.get("name")
@@ -84,7 +98,7 @@ def create_memory_table(user_id: int,
         field_defs.append('"__updated_at__" TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
         
         create_table_sql = f'''
-            CREATE TABLE IF NOT EXISTS "memory_{user_id}_{table_name}" (
+            CREATE TABLE IF NOT EXISTS "{physical_table}" (
                 {', '.join(field_defs)}
             )
         '''
@@ -94,10 +108,10 @@ def create_memory_table(user_id: int,
         # 3. 创建索引（如果有指定索引字段）
         index_fields = [f.get("name") for f in validated_fields if f.get("index")]
         for index_field in index_fields:
-            index_name = f"idx_{user_id}_{table_name}_{index_field}"
+            index_name = f"idx_{physical_table}_{index_field}"
             create_index_sql = f'''
                 CREATE INDEX IF NOT EXISTS "{index_name}" 
-                ON "memory_{user_id}_{table_name}" ("{index_field}")
+                ON "{physical_table}" ("{index_field}")
             '''
             db.execute(create_index_sql)
         
@@ -139,7 +153,7 @@ def add_record(user_id: int,
         db = get_db_client()
         
         # 1. 获取表结构
-        table_info = get_table_info(user_id, table_name)
+        table_info = get_table_info(user_id, table_name, workspace_id)
         if not table_info:
             return {
                 "success": False,
@@ -206,7 +220,7 @@ def add_record(user_id: int,
         placeholders = ', '.join(['?'] * len(valid_keys))
         
         insert_sql = f'''
-            INSERT INTO "memory_{user_id}_{table_name}" ({columns})
+            INSERT INTO "{_physical_table(user_id, table_name, workspace_id)}" ({columns})
             VALUES ({placeholders})
         '''
         
@@ -269,7 +283,7 @@ def query_records(user_id: int,
         
         # 2. 构建 SELECT SQL
         select_sql = f'''
-            SELECT * FROM "memory_{user_id}_{table_name}"
+            SELECT * FROM "{_physical_table(user_id, table_name, workspace_id)}"
             {where_clause}
             ORDER BY "__id__" DESC
             LIMIT ? OFFSET ?
@@ -330,7 +344,7 @@ def update_record(user_id: int,
         db = get_db_client()
         
         # 1. 获取表结构
-        table_info = get_table_info(user_id, table_name)
+        table_info = get_table_info(user_id, table_name, workspace_id)
         if not table_info:
             return {
                 "success": False,
@@ -390,7 +404,7 @@ def update_record(user_id: int,
         # 4. 构建 UPDATE SQL
         set_clause = ', '.join([f'"{k}" = ?' for k in validated_updates.keys()])
         update_sql = f'''
-            UPDATE "memory_{user_id}_{table_name}"
+            UPDATE "{_physical_table(user_id, table_name, workspace_id)}"
             SET {set_clause}, "__updated_at__" = CURRENT_TIMESTAMP
             WHERE "__id__" = ?
         '''
@@ -437,7 +451,7 @@ def delete_record(user_id: int,
         
         # 构建 DELETE SQL
         delete_sql = f'''
-            DELETE FROM "memory_{user_id}_{table_name}"
+            DELETE FROM "{_physical_table(user_id, table_name, workspace_id)}"
             WHERE "__id__" = ?
         '''
         
@@ -485,7 +499,7 @@ def batch_add_records(user_id: int,
         db = get_db_client()
         
         # 1. 获取表结构
-        table_info = get_table_info(user_id, table_name)
+        table_info = get_table_info(user_id, table_name, workspace_id)
         if not table_info:
             return {
                 "success": False,
@@ -584,7 +598,7 @@ def batch_add_records(user_id: int,
             placeholders = ', '.join([placeholder_template] * len(valid_records))
             
             insert_sql = f'''
-                INSERT INTO "memory_{user_id}_{table_name}" ({columns})
+                INSERT INTO "{_physical_table(user_id, table_name, workspace_id)}" ({columns})
                 VALUES {placeholders}
             '''
             
@@ -598,7 +612,7 @@ def batch_add_records(user_id: int,
                 placeholders = ', '.join(['?'] * len(record_data["keys"]))
                 
                 insert_sql = f'''
-                    INSERT INTO "memory_{user_id}_{table_name}" ({columns})
+                    INSERT INTO "{_physical_table(user_id, table_name, workspace_id)}" ({columns})
                     VALUES ({placeholders})
                 '''
                 
@@ -650,7 +664,7 @@ def batch_update_records(user_id: int,
         db = get_db_client()
         
         # 1. 获取表结构
-        table_info = get_table_info(user_id, table_name)
+        table_info = get_table_info(user_id, table_name, workspace_id)
         if not table_info:
             return {
                 "success": False,
@@ -735,7 +749,7 @@ def batch_update_records(user_id: int,
             # 构建 UPDATE SQL
             set_clause = ', '.join([f'"{k}" = ?' for k in validated_updates.keys()])
             update_sql = f'''
-                UPDATE "memory_{user_id}_{table_name}"
+                UPDATE "{_physical_table(user_id, table_name, workspace_id)}"
                 SET {set_clause}, "__updated_at__" = CURRENT_TIMESTAMP
                 WHERE "__id__" = ?
             '''
@@ -782,11 +796,19 @@ def list_tables(user_id: int, workspace_id: Optional[int] = None) -> Dict[str, A
     try:
         db = get_db_client()
         
-        # 从 memory_tables 表中查询
-        rows = db.execute(
-            'SELECT table_name, table_schema FROM memory_tables WHERE user_id = ?',
-            (user_id,)
-        )
+        # 从 memory_tables 表中查询（按 workspace 隔离）
+        if workspace_id is None:
+            rows = db.execute(
+                'SELECT table_name, table_schema FROM memory_tables '
+                'WHERE user_id = ? AND workspace_id IS NULL',
+                (user_id,)
+            )
+        else:
+            rows = db.execute(
+                'SELECT table_name, table_schema FROM memory_tables '
+                'WHERE user_id = ? AND workspace_id = ?',
+                (user_id, workspace_id)
+            )
         
         tables = []
         if rows:
@@ -833,11 +855,19 @@ def get_table_info(user_id: int,
     try:
         db = get_db_client()
         
-        # 从 memory_tables 表中查询
-        result = db.execute(
-            'SELECT table_schema FROM memory_tables WHERE user_id = ? AND table_name = ?',
-            (user_id, table_name)
-        )
+        # 从 memory_tables 表中查询（按 workspace 隔离）
+        if workspace_id is None:
+            result = db.execute(
+                'SELECT table_schema FROM memory_tables '
+                'WHERE user_id = ? AND table_name = ? AND workspace_id IS NULL',
+                (user_id, table_name)
+            )
+        else:
+            result = db.execute(
+                'SELECT table_schema FROM memory_tables '
+                'WHERE user_id = ? AND table_name = ? AND workspace_id = ?',
+                (user_id, table_name, workspace_id)
+            )
         
         if not result:
             return None
@@ -871,7 +901,7 @@ def drop_table(user_id: int, table_name: str, workspace_id: Optional[int] = None
         db = get_db_client()
         
         # 1. 检查表是否存在
-        table_info = get_table_info(user_id, table_name)
+        table_info = get_table_info(user_id, table_name, workspace_id)
         if not table_info:
             return {
                 "success": False,
@@ -879,14 +909,20 @@ def drop_table(user_id: int, table_name: str, workspace_id: Optional[int] = None
             }
         
         # 2. 删除实际的动态表
-        actual_table_name = f"memory_{user_id}_{table_name}"
+        actual_table_name = _physical_table(user_id, table_name, workspace_id)
         db.execute(f'DROP TABLE IF EXISTS "{actual_table_name}"')
         
         # 3. 从 memory_tables 中删除记录
-        db.execute(
-            'DELETE FROM memory_tables WHERE user_id = ? AND table_name = ?',
-            (user_id, table_name)
-        )
+        if workspace_id is None:
+            db.execute(
+                'DELETE FROM memory_tables WHERE user_id = ? AND table_name = ? AND workspace_id IS NULL',
+                (user_id, table_name)
+            )
+        else:
+            db.execute(
+                'DELETE FROM memory_tables WHERE user_id = ? AND table_name = ? AND workspace_id = ?',
+                (user_id, table_name, workspace_id)
+            )
         
         logger.info(f"✓ 删除记忆表: {table_name}（用户 {user_id}）")
         
@@ -931,7 +967,7 @@ def query_records_with_filters(user_id: int,
         db = get_db_client()
         
         # 1. 获取表结构
-        table_info = get_table_info(user_id, table_name)
+        table_info = get_table_info(user_id, table_name, workspace_id)
         if not table_info:
             return {
                 "success": False,
@@ -940,7 +976,7 @@ def query_records_with_filters(user_id: int,
         
         fields = table_info.get("fields", [])
         field_names = [f.get("name") for f in fields]
-        actual_table_name = f"memory_{user_id}_{table_name}"
+        actual_table_name = _physical_table(user_id, table_name, workspace_id)
         
         # 2. 构建 SQL
         sql = f'SELECT * FROM "{actual_table_name}"'

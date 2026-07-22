@@ -299,17 +299,20 @@ def get_chromadb_client() -> Optional[ChromaDBClient]:
     global _chromadb_instance
     if _chromadb_instance is None:
         try:
-            _chromadb_instance = ChromaDBClient()
+            from app.core.config import get_settings
+            persist_dir = get_settings().CHROMA_PERSIST_DIR
+            _chromadb_instance = ChromaDBClient(persist_directory=persist_dir)
         except BaseException as e:
             logger.error(f"ChromaDB 不可用: {e}")
             # 如果是数据损坏，尝试清空数据目录后重试一次
             try:
                 import shutil
-                persist_dir = "./chromadb_data"
+                from app.core.config import get_settings
+                persist_dir = get_settings().CHROMA_PERSIST_DIR
                 if os.path.exists(persist_dir):
                     shutil.rmtree(persist_dir)
                     logger.info("已清空损坏的 ChromaDB 数据目录，尝试重建...")
-                _chromadb_instance = ChromaDBClient()
+                _chromadb_instance = ChromaDBClient(persist_directory=persist_dir)
                 logger.info("✓ ChromaDB 重建成功")
             except BaseException as retry_err:
                 logger.error(f"ChromaDB 重建也失败: {retry_err}")

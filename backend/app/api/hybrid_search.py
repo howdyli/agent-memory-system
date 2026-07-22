@@ -103,6 +103,7 @@ async def api_hybrid_search(
         result = hybrid_search(
             user_id=principal.user_id,
             query=request.query,
+            workspace_id=principal.workspace_id,
             alpha=request.alpha,
             beta=request.beta,
             gamma=request.gamma,
@@ -141,6 +142,7 @@ async def api_analyze_search(
         result = analyze_search(
             user_id=principal.user_id,
             query=request.query,
+            workspace_id=principal.workspace_id,
             top_k=request.top_k,
         )
         if not result.get("success"):
@@ -172,6 +174,7 @@ async def api_bm25_search(
             query=request.query,
             user_id=principal.user_id,
             top_k=request.top_k,
+            workspace_id=principal.workspace_id,
         )
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error", "BM25 搜索失败"))

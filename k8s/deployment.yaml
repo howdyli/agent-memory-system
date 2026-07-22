@@ -15,24 +15,31 @@ metadata:
   name: agent-memory-config
   namespace: agent-memory-system
 data:
-  CHROMA_DB_PATH: "/data/chromadb"
+  CHROMA_PERSIST_DIR: "/data/chromadb"
   JWT_EXPIRATION_HOURS: "24"
   DEBUG: "false"
   LOG_LEVEL: "INFO"
+  LOG_JSON: "true"
   DATABASE_URL: "postgresql://memory_user:$(DB_PASSWORD)@postgres-svc:5432/agent_memory"
   REDIS_URL: "redis://redis-svc:6379/0"
+  EVENT_BUS_BACKEND: "redis"
 
 ---
 # Secret for sensitive data
+# ⚠️ 生产环境请使用 SealedSecrets / External Secrets Operator / Vault 注入，
+#   不要在版本库中存储明文密钥。以下为占位示例，部署前必须替换。
 apiVersion: v1
 kind: Secret
 metadata:
   name: agent-memory-secrets
   namespace: agent-memory-system
+  annotations:
+    # 提示：使用 kubeseal 或 external-secrets 管理此 Secret
+    secret-generator: "manual-placeholder"
 type: Opaque
 stringData:
-  JWT_SECRET_KEY: "change-this-in-production-use-sealed-secrets"
-  DB_PASSWORD: "change-this-in-production"
+  JWT_SECRET_KEY: "REPLACE_VIA_SEALED_SECRET_OR_EXTERNAL_SECRETS"
+  DB_PASSWORD: "REPLACE_VIA_SEALED_SECRET_OR_EXTERNAL_SECRETS"
 
 ---
 # Backend Deployment
@@ -68,32 +75,43 @@ spec:
             name: agent-memory-config
         - secretRef:
             name: agent-memory-secrets
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
         resources:
           requests:
-            cpu: 250m
-            memory: 256Mi
-          limits:
             cpu: 500m
             memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
         livenessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /api/v1/health/live
             port: 8000
           initialDelaySeconds: 15
           periodSeconds: 30
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /api/v1/health/ready
             port: 8000
-          initialDelaySeconds: 5
+          initialDelaySeconds: 10
           periodSeconds: 10
-        volumeMounts:
-        - name: data
-          mountPath: /data
-      volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: agent-memory-data
+          failureThreshold: 3
+        # 注：数据已统一到 PostgreSQL，无需本地 PVC
+        # ChromaDB 数据为本地缓存，Pod 重建时自动从 PG 恢复
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: agent-memory
+            component: backend
+      # 无需 PVC — 数据存储在 PostgreSQL，Chroma 为可重建缓存
 
 ---
 # Backend Service
@@ -112,19 +130,8 @@ spec:
     name: http
   type: ClusterIP
 
----
-# Persistent Volume Claim
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: agent-memory-data
-  namespace: agent-memory-system
-spec:
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
+# PVC 已移除 — P0-1 存储统一到 PostgreSQL 后，Pod 无需本地持久卷。
+# ChromaDB 向量数据为可重建缓存，如需持久化可单独配置 ReadWriteMany PVC。
 
 ---
 # Horizontal Pod Autoscaler
@@ -177,3 +184,79 @@ spec:
             name: backend-svc
             port:
               number: 8000
+
+---
+# PodDisruptionBudget - 确保滚动更新/节点驱逐时至少2个副本可用
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: agent-memory-system
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: agent-memory
+      component: backend
+
+---
+# NetworkPolicy - 限制后端Pod的入出流量
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-network-policy
+  namespace: agent-memory-system
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-memory
+      component: backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agent-memory-system
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # 允许访问 PostgreSQL
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 5432
+    # 允许访问 Redis
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 6379
+    # 允许 HTTPS 出站（LLM API、Webhook 投递等）
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    # 允许 DNS 解析
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ResourceQuota - 命名空间级资源总量限制
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: agent-memory-quota
+  namespace: agent-memory-system
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    pods: "50"

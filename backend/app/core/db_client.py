@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 class SQLiteClient:
     """SQLite 数据库客户端（使用内存连接池）"""
-    
+
+    dialect = "sqlite"
     _instance = None
     _local = threading.local()
     _db_path = "agent_memory.db"
@@ -573,18 +574,42 @@ class SQLiteClient:
             logger.error(f"✗ 获取记忆变量失败: {e}")
             return None
     
-    def create_memory_table(self, user_id: int, table_name: str, schema: Dict) -> bool:
-        """创建记忆表（动态表结构）"""
+    def create_memory_table(self, user_id: int, table_name: str, schema: Dict,
+                            workspace_id: Optional[int] = None) -> bool:
+        """创建记忆表（动态表结构）元数据，按 workspace 隔离。
+
+        采用手动 upsert（先查后写）而非 ON CONFLICT，避免对唯一约束
+        的硬依赖（workspace_id 可为 NULL，NULL 在唯一索引中不参与去重）。
+        """
         try:
             import json
             schema_str = json.dumps(schema, ensure_ascii=False)
             
-            self.execute('''
-                INSERT INTO memory_tables (user_id, table_name, table_schema)
-                VALUES (?, ?, ?)
-                ON CONFLICT(user_id, table_name) 
-                DO UPDATE SET table_schema = excluded.table_schema, updated_at = CURRENT_TIMESTAMP
-            ''', (user_id, table_name, schema_str))
+            if workspace_id is None:
+                existing = self.execute(
+                    'SELECT id FROM memory_tables '
+                    'WHERE user_id = ? AND table_name = ? AND workspace_id IS NULL',
+                    (user_id, table_name),
+                )
+            else:
+                existing = self.execute(
+                    'SELECT id FROM memory_tables '
+                    'WHERE user_id = ? AND table_name = ? AND workspace_id = ?',
+                    (user_id, table_name, workspace_id),
+                )
+            
+            if existing:
+                self.execute(
+                    'UPDATE memory_tables SET table_schema = ?, '
+                    'updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (schema_str, existing[0]["id"]),
+                )
+            else:
+                self.execute(
+                    'INSERT INTO memory_tables (user_id, workspace_id, table_name, table_schema) '
+                    'VALUES (?, ?, ?, ?)',
+                    (user_id, workspace_id, table_name, schema_str),
+                )
             return True
         except Exception as e:
             logger.error(f"✗ 创建记忆表失败: {e}")
@@ -652,13 +677,43 @@ class SQLiteClient:
             logger.info("✓ 数据库连接已关闭")
 
 
-# 全局客户端实例
-db_client = SQLiteClient()
+# 全局客户端实例（按 DATABASE_URL 选择后端，惰性单例）
+_db_client = None
+_db_client_lock = threading.Lock()
+
+_PG_PREFIXES = ("postgres://", "postgresql://", "postgres+", "postgresql+")
 
 
-def get_db_client() -> SQLiteClient:
-    """获取数据库客户端实例"""
-    return db_client
+def _create_db_client():
+    """根据 settings.DATABASE_URL 选择数据库后端。
+
+    - postgres/postgresql -> PostgresClient（生产多副本共享存储）
+    - 其它（含空值 / sqlite://）-> SQLiteClient（开发 / 测试）
+    """
+    database_url = None
+    try:
+        from app.core.config import get_settings
+        database_url = getattr(get_settings(), "DATABASE_URL", None)
+    except Exception as e:
+        logger.warning(f"读取 DATABASE_URL 失败，回退 SQLite: {e}")
+
+    if database_url and database_url.strip().lower().startswith(_PG_PREFIXES):
+        from app.core.pg_client import PostgresClient
+        logger.info("使用 PostgreSQL 数据库后端")
+        return PostgresClient(database_url)
+
+    logger.info("使用 SQLite 数据库后端")
+    return SQLiteClient()
+
+
+def get_db_client():
+    """获取数据库客户端实例（惰性单例，按 DATABASE_URL 选择 SQLite / PostgreSQL）。"""
+    global _db_client
+    if _db_client is None:
+        with _db_client_lock:
+            if _db_client is None:
+                _db_client = _create_db_client()
+    return _db_client
 
 
 def test_db_connection():
