@@ -84,6 +84,7 @@ async def lifespan(app: FastAPI):
     )
     from app.core.event_bus import get_event_bus
     from app.services.webhook_service import (
+        dispatch_event_to_webhooks,
         start_webhook_worker,
         stop_webhook_worker,
     )
@@ -102,6 +103,8 @@ async def lifespan(app: FastAPI):
     event_bus = get_event_bus()
     await event_bus.start()
     start_webhook_worker()
+    # 将 EventBus 事件分发给匹配的活跃 Webhook（订阅全部事件类型，由 dispatch 内部按 event_types 过滤）
+    webhook_subscription_id = await event_bus.subscribe(["*"], dispatch_event_to_webhooks)
     start_retry_worker()
 
     yield
@@ -109,6 +112,7 @@ async def lifespan(app: FastAPI):
     # 优雅关闭（逆序）
     shutdown_tracing()
     stop_retry_worker()
+    await event_bus.unsubscribe(webhook_subscription_id)
     stop_webhook_worker()
     stop_outbox_scheduler()
     await event_bus.stop()
