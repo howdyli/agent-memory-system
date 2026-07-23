@@ -83,3 +83,6 @@ packages/sdk-python/src/*.egg-info/
 *.bak
 *.swp
 *~
+
+# draw.io 自动保存备份
+.$*.drawio.bkp

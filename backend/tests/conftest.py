@@ -108,6 +108,29 @@ def chroma():
 
 
 # ============================================================
+# 全局状态重置（autouse）
+# ============================================================
+
+@pytest.fixture(scope="function", autouse=True)
+def _reset_rate_limiter():
+    """每个测试前重置 RateLimiter 全局单例，避免测试间状态污染。"""
+    try:
+        from app.services.security_service import get_rate_limiter
+        limiter = get_rate_limiter()
+        limiter._requests.clear()
+    except Exception:
+        pass
+    yield
+    # 测试后也清理
+    try:
+        from app.services.security_service import get_rate_limiter
+        limiter = get_rate_limiter()
+        limiter._requests.clear()
+    except Exception:
+        pass
+
+
+# ============================================================
 # 认证 Fixtures
 # ============================================================
 

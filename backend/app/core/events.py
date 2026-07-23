@@ -4,7 +4,7 @@ Phase 4: 事件模型定义
 定义事件类型常量和 MemoryEvent dataclass，作为 EventBus 的统一数据载体。
 """
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import uuid
 import json
@@ -95,7 +95,7 @@ class MemoryEvent:
     memory_id: str = ""
     memory_type: str = "fragment"
     workspace_id: Optional[int] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     data: Dict[str, Any] = field(default_factory=dict)
     source: str = "system"
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -104,7 +104,7 @@ class MemoryEvent:
         """序列化为字典（datetime 转 ISO 格式字符串）"""
         d = asdict(self)
         if isinstance(d.get("timestamp"), datetime):
-            d["timestamp"] = d["timestamp"].isoformat() + "Z"
+            d["timestamp"] = d["timestamp"].isoformat()
         return d
 
     def to_json(self) -> str:
@@ -117,7 +117,13 @@ class MemoryEvent:
         ts = d.get("timestamp")
         if isinstance(ts, str):
             try:
-                d = {**d, "timestamp": datetime.fromisoformat(ts.rstrip("Z"))}
+                ts_clean = ts.rstrip("Z")
+                if ts_clean.endswith("+00:00"):
+                    ts_clean = ts_clean[:-6]
+                d_timestamp = datetime.fromisoformat(ts_clean)
+                if d_timestamp.tzinfo is None:
+                    d_timestamp = d_timestamp.replace(tzinfo=timezone.utc)
+                d = {**d, "timestamp": d_timestamp}
             except ValueError:
                 pass
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})

@@ -35,6 +35,7 @@ from app.api import (
     memory_fragments, auto_recall, long_term_memory, system_integration,
     agent, memory_lifecycle, graph_memory, hybrid_search,
     memory_observability, sessions, workspace, webhooks, events,
+    business_metrics, memory_evolution, smart_forgetting,
 )
 
 
@@ -84,6 +85,7 @@ async def lifespan(app: FastAPI):
     )
     from app.core.event_bus import get_event_bus
     from app.services.webhook_service import (
+        dispatch_event_to_webhooks,
         start_webhook_worker,
         stop_webhook_worker,
     )
@@ -102,6 +104,8 @@ async def lifespan(app: FastAPI):
     event_bus = get_event_bus()
     await event_bus.start()
     start_webhook_worker()
+    # 将 EventBus 事件分发给匹配的活跃 Webhook（订阅全部事件类型，由 dispatch 内部按 event_types 过滤）
+    webhook_subscription_id = await event_bus.subscribe(["*"], dispatch_event_to_webhooks)
     start_retry_worker()
 
     yield
@@ -109,6 +113,7 @@ async def lifespan(app: FastAPI):
     # 优雅关闭（逆序）
     shutdown_tracing()
     stop_retry_worker()
+    await event_bus.unsubscribe(webhook_subscription_id)
     stop_webhook_worker()
     stop_outbox_scheduler()
     await event_bus.stop()
@@ -130,13 +135,14 @@ app = FastAPI(
 - **Agent 对话** — 带记忆上下文的 LLM 对话、工具调用、流式输出
 - **可观测性** — 仪表盘指标、质量评估、链路追踪
 """,
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
     openapi_tags=[
         {"name": "agent", "description": "Agent 对话与工具调用"},
         {"name": "memory-graph", "description": "知识图谱记忆管理"},
         {"name": "sessions", "description": "会话管理"},
         {"name": "auth", "description": "认证与授权"},
+        {"name": "mcp", "description": "MCP (Model Context Protocol) Server"},
     ],
 )
 
@@ -219,6 +225,68 @@ async def request_id_middleware(request: Request, call_next):
         except Exception:
             pass
     response.headers["X-Request-ID"] = request_id
+    return response
+
+
+# ------------------------------------------------------------------
+# 限流中间件（基于 user_id 或 IP 的滑动窗口）
+# ------------------------------------------------------------------
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """对非只读/非健康检查的请求做速率限制，超出返回 429。"""
+    # 白名单：健康检查、metrics、openapi、docs
+    path = request.url.path
+    if (
+        path in ("/", "/metrics", "/openapi.json", "/docs", "/redoc")
+        or path.startswith("/api/v1/health")
+    ):
+        return await call_next(request)
+
+    # 识别限流键：已认证用户使用 user_id，否则使用客户端 IP
+    auth_header = request.headers.get("Authorization", "")
+    rate_key = None
+    if auth_header.startswith("Bearer "):
+        try:
+            from app.core.auth import decode_access_token
+            payload = decode_access_token(auth_header[7:])
+            if payload and "user_id" in payload:
+                rate_key = f"user:{payload['user_id']}"
+        except Exception:
+            pass
+    if rate_key is None:
+        client_ip = request.client.host if request.client else "unknown"
+        rate_key = f"ip:{client_ip}"
+
+    from app.services.security_service import get_rate_limiter
+    from app.core.config import get_settings
+    s = get_settings()
+    result = get_rate_limiter().check(
+        rate_key,
+        max_requests=s.RATE_LIMIT_REQUESTS,
+        window_seconds=s.RATE_LIMIT_WINDOW_SECONDS,
+    )
+
+    if not result.get("allowed"):
+        from app.core.errors import ErrorResponse, ErrorCode
+        body = ErrorResponse.build(
+            ErrorCode.VALIDATION_ERROR,
+            "Rate limit exceeded",
+            details=result,
+            trace_id=_current_trace_id(),
+        )
+        return JSONResponse(
+            status_code=429,
+            content=jsonable_encoder(body),
+            headers={
+                "Retry-After": str(result.get("retry_after", 60)),
+                "X-RateLimit-Limit": str(result.get("max_requests", 100)),
+                "X-RateLimit-Remaining": "0",
+            },
+        )
+
+    response = await call_next(request)
+    response.headers["X-RateLimit-Limit"] = str(result.get("max_requests", 100))
+    response.headers["X-RateLimit-Remaining"] = str(result.get("remaining", 0))
     return response
 
 
@@ -313,14 +381,66 @@ app.include_router(sessions.router, prefix="/api/v1/agent", tags=["sessions"])
 app.include_router(workspace.router, prefix="/api/v1/workspaces", tags=["workspaces"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])
 app.include_router(events.router, prefix="/api/v1/events", tags=["events"])
+app.include_router(business_metrics.router, prefix="/api/v1", tags=["system"])
+app.include_router(memory_evolution.router, prefix="/api/v1", tags=["memory-evolution"])
+app.include_router(smart_forgetting.router, prefix="/api/v1", tags=["smart-forgetting"])
+
+
+# ------------------------------------------------------------------
+# MCP (Model Context Protocol) Server 挂载
+# 将 MCP Server 通过 streamable_http 传输挂载到 /mcp 路径，
+# 供 MCP 客户端（Claude Desktop / Cursor / 自研 Agent）通过 HTTP 接入。
+# 同时提供 /api/v1/mcp/tools 端点查询当前暴露的工具清单。
+# ------------------------------------------------------------------
+_mcp_mounted = False
+try:
+    from app.mcp_server import mount_to_app, list_mcp_tools, _mcp_available
+    if _mcp_available and settings.MCP_ENABLED:
+        _mcp_mounted = mount_to_app(app, path="/mcp")
+except Exception as e:
+    import sys
+    print(f"[WARN] MCP Server mount failed: {e}", file=sys.stderr)
+
+
+@app.get(
+    "/api/v1/mcp/tools",
+    tags=["mcp"],
+    summary="MCP 工具清单",
+    description="返回当前 MCP Server 暴露的工具清单（名称、描述、参数）",
+)
+async def mcp_tools_endpoint():
+    """查询 MCP Server 暴露的工具清单。"""
+    return {
+        "success": True,
+        "mounted": _mcp_mounted,
+        "transport": settings.MCP_TRANSPORT if _mcp_mounted else None,
+        "endpoint": "/mcp" if _mcp_mounted else None,
+        "tools": list_mcp_tools() if _mcp_available else [],
+        "tools_count": len(list_mcp_tools()) if _mcp_available else 0,
+    }
+
+
+@app.get("/api/v1/mcp/status")
+async def mcp_status_endpoint():
+    """查询 MCP Server 状态。"""
+    return {
+        "success": True,
+        "enabled": settings.MCP_ENABLED,
+        "sdk_available": _mcp_available,
+        "mounted": _mcp_mounted,
+        "transport": settings.MCP_TRANSPORT,
+        "host": settings.MCP_HOST,
+        "port": settings.MCP_PORT,
+    }
 
 
 @app.get("/")
 async def root():
     return {
         "message": "Agent Memory System API",
-        "version": "0.1.0",
+        "version": "0.3.0",
         "status": "running",
+        "mcp_enabled": _mcp_mounted,
     }
 
 

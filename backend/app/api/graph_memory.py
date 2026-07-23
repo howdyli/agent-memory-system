@@ -30,6 +30,7 @@ from app.services.graph_memory_service import (
     deactivate_relationship,
     update_relationship,
     get_relationship_history,
+    get_relationship_at_time,
     list_relationships,
     # 图遍历
     get_neighbors,
@@ -386,6 +387,49 @@ async def get_relationship_history_api(
             entity2_name=entity2,
             entity1_type=entity1_type,
             entity2_type=entity2_type,
+            workspace_id=principal.workspace_id,
+        )
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/memory/graph/temporal", summary="时序点查询", description="查询在指定时间点成立的关系（双时序模型：支持事件时间和系统时间）")
+async def get_relationship_at_time_api(
+    at: str = Query(..., description="查询时间点（ISO 8601，如 2026-06-01T00:00:00）"),
+    entity: Optional[str] = Query(None, description="源实体名称（为空则查所有实体）"),
+    entity_type: str = Query("person", description="源实体类型"),
+    target_entity: Optional[str] = Query(None, description="目标实体名称（为空则不限制目标）"),
+    target_entity_type: str = Query("organization", description="目标实体类型"),
+    relation_type: Optional[str] = Query(None, description="关系类型过滤（如 colleague）"),
+    time_mode: Literal["event", "system"] = Query(
+        "event", description="时间模式：event=事件时间(valid_from/valid_to), system=系统时间(observed_at/expired_at)"
+    ),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
+):
+    """
+    时序点查询：返回在 ``at`` 时间点成立的关系。
+
+    **event 模式**：基于事件时间判断关系在该时刻是否为真
+    （例："2026-06-01 时 Alice 在哪家公司？"）
+
+    **system 模式**：基于系统时间判断系统在该时刻是否已观测到该关系
+    （例："昨天系统知道 Alice 在哪家公司？"）
+    """
+    try:
+        result = get_relationship_at_time(
+            user_id=principal.user_id,
+            at_time=at,
+            entity_name=entity,
+            entity_type=entity_type,
+            target_entity_name=target_entity,
+            target_entity_type=target_entity_type,
+            relation_type=relation_type,
+            time_mode=time_mode,
             workspace_id=principal.workspace_id,
         )
         if not result.get("success"):

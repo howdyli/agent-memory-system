@@ -129,6 +129,16 @@ kubectl apply -f k8s/deployment.yaml
     └─────────────┘  └─────────────┘ └─────────────┘
 ```
 
+### 事件流转 & Webhook 流程图
+
+记忆变更如何经事件总线分发到内部消费者（SSE/历史/指标）与外部 Webhook：
+
+![事件流转流程](docs/事件流转流程.png)
+
+![事件与Webhook总体流程](docs/事件与Webhook总体流程.png)
+
+> 可编辑源文件：[docs/事件流转流程.drawio](docs/事件流转流程.drawio)、[docs/事件与Webhook总体流程.drawio](docs/事件与Webhook总体流程.drawio)（用 draw.io / diagrams.net 打开）。
+
 ---
 
 ## 🔧 技术栈
