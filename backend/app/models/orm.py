@@ -215,6 +215,8 @@ class GraphRelationship(Base):
     confidence: Mapped[Optional[float]] = mapped_column(Float, default=0.5)
     valid_from: Mapped[Optional[datetime]] = mapped_column()
     valid_to: Mapped[Optional[datetime]] = mapped_column()
+    observed_at: Mapped[Optional[datetime]] = mapped_column()
+    expired_at: Mapped[Optional[datetime]] = mapped_column()
     is_active: Mapped[Optional[int]] = mapped_column(Integer, default=1)
     extraction_source: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[Optional[datetime]] = mapped_column(server_default=func.now())
@@ -239,6 +241,8 @@ class GraphRelationshipHistory(Base):
     new_properties: Mapped[Optional[str]] = mapped_column(Text)
     valid_from: Mapped[Optional[datetime]] = mapped_column()
     valid_to: Mapped[Optional[datetime]] = mapped_column()
+    observed_at: Mapped[Optional[datetime]] = mapped_column()
+    expired_at: Mapped[Optional[datetime]] = mapped_column()
     change_reason: Mapped[Optional[str]] = mapped_column(Text)
     changed_at: Mapped[Optional[datetime]] = mapped_column(server_default=func.now())
 

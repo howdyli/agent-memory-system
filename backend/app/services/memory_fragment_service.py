@@ -622,15 +622,28 @@ def create_fragment(user_id: int,
         # 如果写入失败，outbox 记录保留，由 process_vector_outbox 后台任务处理
         
         logger.info(f"✓ 创建记忆片段 ID: {fragment_id}, 类型: {fragment_type}, TTL: {ttl}")
-        
+
         # 观测性埋点：记录创建事件
         try:
             record_trace_event(user_id, str(fragment_id), "fragment", "created",
                               "extraction", metadata={"fragment_type": fragment_type})
         except Exception:
             pass
-        
-        return {
+
+        # 矛盾检测：新记忆可能与已有记忆冲突（R-05），非阻塞执行
+        contradiction_result = None
+        try:
+            from app.services.contradiction_service import detect_contradiction
+            contradiction_result = detect_contradiction(
+                user_id=user_id,
+                new_content=content,
+                new_fragment_id=fragment_id,
+                workspace_id=workspace_id,
+            )
+        except Exception as e:
+            logger.warning(f"⚠️  矛盾检测失败（不影响记忆创建）: {e}")
+
+        result = {
             "success": True,
             "fragment_id": fragment_id,
             "fragment_type": fragment_type,
@@ -640,6 +653,13 @@ def create_fragment(user_id: int,
             "importance_score": importance_score,
             "message": f"Fragment created successfully"
         }
+        if contradiction_result and contradiction_result.get("superseded_ids"):
+            result["contradiction"] = {
+                "superseded_ids": contradiction_result["superseded_ids"],
+                "detection_methods": contradiction_result.get("detection_methods", []),
+                "evolution_records": contradiction_result.get("evolution_records", []),
+            }
+        return result
         
     except Exception as e:
         if '_span' in locals():

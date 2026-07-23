@@ -116,8 +116,9 @@ class TableManager:
             "version": 1,
         }
 
-        # 1. Register in metadata table
-        self._relational.create_table(workspace_id, table_name, table_schema)
+        # 1. Register in metadata table (fail-fast: avoid orphaned physical tables)
+        if not self._relational.create_table(workspace_id, table_name, table_schema):
+            raise ValueError(f"Failed to register table '{table_name}' in metadata store")
 
         # 2. Create physical table
         phys_name = self._physical_table_name(workspace_id, table_name)

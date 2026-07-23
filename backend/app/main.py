@@ -35,7 +35,7 @@ from app.api import (
     memory_fragments, auto_recall, long_term_memory, system_integration,
     agent, memory_lifecycle, graph_memory, hybrid_search,
     memory_observability, sessions, workspace, webhooks, events,
-    business_metrics,
+    business_metrics, memory_evolution, smart_forgetting,
 )
 
 
@@ -135,13 +135,14 @@ app = FastAPI(
 - **Agent 对话** — 带记忆上下文的 LLM 对话、工具调用、流式输出
 - **可观测性** — 仪表盘指标、质量评估、链路追踪
 """,
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
     openapi_tags=[
         {"name": "agent", "description": "Agent 对话与工具调用"},
         {"name": "memory-graph", "description": "知识图谱记忆管理"},
         {"name": "sessions", "description": "会话管理"},
         {"name": "auth", "description": "认证与授权"},
+        {"name": "mcp", "description": "MCP (Model Context Protocol) Server"},
     ],
 )
 
@@ -381,14 +382,65 @@ app.include_router(workspace.router, prefix="/api/v1/workspaces", tags=["workspa
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])
 app.include_router(events.router, prefix="/api/v1/events", tags=["events"])
 app.include_router(business_metrics.router, prefix="/api/v1", tags=["system"])
+app.include_router(memory_evolution.router, prefix="/api/v1", tags=["memory-evolution"])
+app.include_router(smart_forgetting.router, prefix="/api/v1", tags=["smart-forgetting"])
+
+
+# ------------------------------------------------------------------
+# MCP (Model Context Protocol) Server 挂载
+# 将 MCP Server 通过 streamable_http 传输挂载到 /mcp 路径，
+# 供 MCP 客户端（Claude Desktop / Cursor / 自研 Agent）通过 HTTP 接入。
+# 同时提供 /api/v1/mcp/tools 端点查询当前暴露的工具清单。
+# ------------------------------------------------------------------
+_mcp_mounted = False
+try:
+    from app.mcp_server import mount_to_app, list_mcp_tools, _mcp_available
+    if _mcp_available and settings.MCP_ENABLED:
+        _mcp_mounted = mount_to_app(app, path="/mcp")
+except Exception as e:
+    import sys
+    print(f"[WARN] MCP Server mount failed: {e}", file=sys.stderr)
+
+
+@app.get(
+    "/api/v1/mcp/tools",
+    tags=["mcp"],
+    summary="MCP 工具清单",
+    description="返回当前 MCP Server 暴露的工具清单（名称、描述、参数）",
+)
+async def mcp_tools_endpoint():
+    """查询 MCP Server 暴露的工具清单。"""
+    return {
+        "success": True,
+        "mounted": _mcp_mounted,
+        "transport": settings.MCP_TRANSPORT if _mcp_mounted else None,
+        "endpoint": "/mcp" if _mcp_mounted else None,
+        "tools": list_mcp_tools() if _mcp_available else [],
+        "tools_count": len(list_mcp_tools()) if _mcp_available else 0,
+    }
+
+
+@app.get("/api/v1/mcp/status")
+async def mcp_status_endpoint():
+    """查询 MCP Server 状态。"""
+    return {
+        "success": True,
+        "enabled": settings.MCP_ENABLED,
+        "sdk_available": _mcp_available,
+        "mounted": _mcp_mounted,
+        "transport": settings.MCP_TRANSPORT,
+        "host": settings.MCP_HOST,
+        "port": settings.MCP_PORT,
+    }
 
 
 @app.get("/")
 async def root():
     return {
         "message": "Agent Memory System API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "status": "running",
+        "mcp_enabled": _mcp_mounted,
     }
 
 

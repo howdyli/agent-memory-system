@@ -100,6 +100,7 @@ def _ensure_graph_tables() -> None:
             relation_type TEXT NOT NULL, relation_subtype TEXT,
             properties TEXT, confidence REAL DEFAULT 0.5,
             valid_from TIMESTAMP, valid_to TIMESTAMP,
+            observed_at TIMESTAMP, expired_at TIMESTAMP,
             is_active INTEGER DEFAULT 1, extraction_source TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (source_entity_id) REFERENCES graph_entities(id),
@@ -112,6 +113,7 @@ def _ensure_graph_tables() -> None:
             relation_type TEXT NOT NULL,
             old_properties TEXT, new_properties TEXT,
             valid_from TIMESTAMP, valid_to TIMESTAMP,
+            observed_at TIMESTAMP, expired_at TIMESTAMP,
             change_reason TEXT,
             changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''',
@@ -120,6 +122,17 @@ def _ensure_graph_tables() -> None:
             db.execute(sql)
         except Exception:
             pass
+
+    # 双时序字段迁移：为已有数据库补列（SQLite 不支持 ADD COLUMN IF NOT EXISTS，用异常兜底）
+    for col in ("observed_at", "expired_at"):
+        try:
+            db.execute(f"ALTER TABLE graph_relationships ADD COLUMN {col} TIMESTAMP")
+        except Exception:
+            pass  # 列已存在
+        try:
+            db.execute(f"ALTER TABLE graph_relationship_history ADD COLUMN {col} TIMESTAMP")
+        except Exception:
+            pass  # 列已存在
 
 
 # ============================================================
@@ -422,6 +435,8 @@ def _record_relationship_history(
     valid_from: Optional[str] = None,
     workspace_id: Optional[int] = None,
     valid_to: Optional[str] = None,
+    observed_at: Optional[str] = None,
+    expired_at: Optional[str] = None,
     change_reason: str = "created",
 ) -> int:
     """记录关系变更历史"""
@@ -430,11 +445,11 @@ def _record_relationship_history(
         '''INSERT INTO graph_relationship_history
            (user_id, relationship_id, source_entity_id, target_entity_id,
             relation_type, old_properties, new_properties,
-            valid_from, valid_to, change_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            valid_from, valid_to, observed_at, expired_at, change_reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
         (user_id, relationship_id, source_entity_id, target_entity_id,
          relation_type, old_properties, new_properties,
-         valid_from, valid_to, change_reason)
+         valid_from, valid_to, observed_at, expired_at, change_reason)
     )
 
 
@@ -514,16 +529,16 @@ def add_relationship(
                 "target": tgt_result,
             }
 
-        # 3. 创建关系
+        # 3. 创建关系（observed_at 记录系统观察到该关系的时间）
         rel_id = db.execute(
             '''INSERT INTO graph_relationships
                (user_id, workspace_id, source_entity_id, target_entity_id, relation_type,
-                relation_subtype, properties, confidence, valid_from,
+                relation_subtype, properties, confidence, valid_from, observed_at,
                 extraction_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
             (user_id, workspace_id, source_id, target_id, normalized_type,
              relation_subtype, properties_json, confidence,
-             valid_from or now, extraction_source)
+             valid_from or now, now, extraction_source)
         )
 
         # 4. 记录历史
@@ -536,6 +551,7 @@ def add_relationship(
                 relation_type=normalized_type,
                 new_properties=properties_json,
                 valid_from=valid_from or now,
+                observed_at=now,
                 change_reason="created",
             )
         except Exception as e:
@@ -550,6 +566,7 @@ def add_relationship(
             "source": src_result,
             "target": tgt_result,
             "valid_from": valid_from or now,
+            "observed_at": now,
         }
 
     except Exception as e:
@@ -562,16 +579,18 @@ def deactivate_relationship(
     relationship_id: int,
     reason: str = "ended",
     workspace_id: Optional[int] = None,
+    ended_at: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     结束一个关系。
 
-    将 is_active 置为 0，记录 valid_to，写入历史。
+    将 is_active 置为 0，记录 valid_to（事件时间）和 expired_at（系统时间），写入历史。
 
     Args:
         user_id: 用户 ID
         relationship_id: 关系 ID
         reason: 结束原因
+        ended_at: 关系实际结束的事件时间（ISO 格式，默认当前时间）
 
     Returns:
         操作结果
@@ -580,6 +599,7 @@ def deactivate_relationship(
         _ensure_graph_tables()
         db = get_db_client()
         now = datetime.now().isoformat()
+        valid_to = ended_at or now  # 事件时间：关系实际结束的时刻
 
         rows = db.execute(
             f'''SELECT * FROM graph_relationships WHERE id = ? AND user_id = ? AND {_ws_sql(workspace_id)[0]}''',
@@ -590,11 +610,11 @@ def deactivate_relationship(
 
         rel = dict(rows[0])
 
-        # 更新状态
+        # 更新状态：valid_to=事件时间, expired_at=系统时间
         db.execute(
-            '''UPDATE graph_relationships SET is_active = 0, valid_to = ?
+            '''UPDATE graph_relationships SET is_active = 0, valid_to = ?, expired_at = ?
                WHERE id = ?''',
-            (now, relationship_id)
+            (valid_to, now, relationship_id)
         )
 
         # 记录历史
@@ -607,7 +627,9 @@ def deactivate_relationship(
                 relation_type=rel["relation_type"],
                 old_properties=rel.get("properties"),
                 valid_from=rel.get("valid_from"),
-                valid_to=now,
+                valid_to=valid_to,
+                observed_at=rel.get("observed_at"),
+                expired_at=now,
                 change_reason=reason,
             )
         except Exception as e:
@@ -617,7 +639,8 @@ def deactivate_relationship(
         return {
             "success": True,
             "message": f"Relationship {relationship_id} deactivated",
-            "valid_to": now,
+            "valid_to": valid_to,
+            "expired_at": now,
         }
 
     except Exception as e:
@@ -796,6 +819,140 @@ def get_relationship_history(
 
     except Exception as e:
         logger.error(f"✗ 获取关系历史失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def get_relationship_at_time(
+    user_id: int,
+    at_time: str,
+    entity_name: Optional[str] = None,
+    entity_type: str = "person",
+    target_entity_name: Optional[str] = None,
+    target_entity_type: str = "organization",
+    relation_type: Optional[str] = None,
+    time_mode: str = "event",
+    workspace_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    时序点查询：返回在指定时间点 **成立** 的关系。
+
+    双时序模型说明：
+    - **event 模式**（事件时间）：基于 valid_from / valid_to 判断关系在 ``at_time`` 是否为真。
+      适用场景："2026-06-01 时 Alice 的角色是什么？"
+    - **system 模式**（系统时间）：基于 observed_at / expired_at 判断系统在 ``at_time`` 时
+      是否已观测到该关系。适用场景："昨天系统知道 Alice 的角色是什么？"
+
+    Args:
+        user_id: 用户 ID
+        at_time: 查询时间点（ISO 8601 字符串，如 "2026-06-01T00:00:00"）
+        entity_name: 源实体名称（为空则查所有实体的关系）
+        entity_type: 源实体类型
+        target_entity_name: 目标实体名称（为空则不限制目标）
+        target_entity_type: 目标实体类型
+        relation_type: 关系类型过滤（为空则返回所有类型）
+        time_mode: "event"（按事件时间 valid_from/valid_to）或
+                   "system"（按系统时间 observed_at/expired_at）
+        workspace_id: workspace ID
+
+    Returns:
+        {
+            "success": bool,
+            "at_time": str,
+            "time_mode": str,
+            "relationships": List[Dict],  # 在该时间点成立的关系
+            "count": int,
+        }
+    """
+    try:
+        _ensure_graph_tables()
+        db = get_db_client()
+
+        # 选择时间列
+        if time_mode == "system":
+            start_col, end_col = "observed_at", "expired_at"
+        else:
+            start_col, end_col = "valid_from", "valid_to"
+
+        # 构建 WHERE 条件
+        conditions = ["r.user_id = ?"]
+        params: List[Any] = [user_id]
+
+        ws_sql, ws_params = _ws_sql(workspace_id, col="r.workspace_id")
+        conditions.append(ws_sql)
+        params.extend(ws_params)
+
+        # 时序过滤：start_col <= at_time AND (end_col IS NULL OR end_col > at_time)
+        conditions.append(f"r.{start_col} <= ?")
+        params.append(at_time)
+        conditions.append(f"(r.{end_col} IS NULL OR r.{end_col} > ?)")
+        params.append(at_time)
+
+        # 源实体过滤
+        entity_join = ""
+        if entity_name:
+            entity_join += " JOIN graph_entities e1 ON r.source_entity_id = e1.id"
+            conditions.append("e1.name = ?")
+            params.append(entity_name)
+            if entity_type:
+                conditions.append("e1.entity_type = ?")
+                params.append(entity_type)
+
+        # 目标实体过滤
+        if target_entity_name:
+            entity_join += " JOIN graph_entities e2 ON r.target_entity_id = e2.id"
+            conditions.append("e2.name = ?")
+            params.append(target_entity_name)
+            if target_entity_type:
+                conditions.append("e2.entity_type = ?")
+                params.append(target_entity_type)
+
+        # 关系类型过滤
+        if relation_type:
+            normalized = _normalize_relation_type(relation_type)
+            conditions.append("r.relation_type = ?")
+            params.append(normalized)
+
+        where_clause = " AND ".join(conditions)
+
+        rows = db.execute(
+            f'''SELECT r.id, r.relation_type, r.relation_subtype, r.properties,
+                      r.confidence, r.valid_from, r.valid_to,
+                      r.observed_at, r.expired_at, r.is_active,
+                      e_src.name as source_name, e_src.entity_type as source_type,
+                      e_tgt.name as target_name, e_tgt.entity_type as target_type
+               FROM graph_relationships r
+               JOIN graph_entities e_src ON r.source_entity_id = e_src.id
+               JOIN graph_entities e_tgt ON r.target_entity_id = e_tgt.id
+               {entity_join}
+               WHERE {where_clause}
+               ORDER BY r.valid_from DESC''',
+            tuple(params)
+        )
+
+        relationships = []
+        for row in (rows or []):
+            r = dict(row)
+            if r.get("properties"):
+                try:
+                    r["properties"] = json.loads(r["properties"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            relationships.append(r)
+
+        logger.info(
+            f"✓ 时序点查询: at={at_time}, mode={time_mode}, "
+            f"entity={entity_name}, count={len(relationships)}"
+        )
+        return {
+            "success": True,
+            "at_time": at_time,
+            "time_mode": time_mode,
+            "relationships": relationships,
+            "count": len(relationships),
+        }
+
+    except Exception as e:
+        logger.error(f"✗ 时序点查询失败: {e}")
         return {"success": False, "error": str(e)}
 
 

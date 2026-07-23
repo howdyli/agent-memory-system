@@ -1916,6 +1916,19 @@ def run_maintenance_now() -> Dict[str, Any]:
         results["dedup_scan"] = {"success": False, "error": str(e)}
         logger.error(f"✗ 去重扫描失败: {e}")
 
+    # 4. 智能遗忘：重算重要性并自动遗忘低价值记忆（R-07）
+    try:
+        from app.services.smart_forgetting_service import recalculate_importance
+        forgetting_result = recalculate_importance()
+        results["smart_forgetting"] = forgetting_result
+        logger.info(
+            f"智能遗忘: 评估 {forgetting_result.get('total_evaluated', 0)} 条, "
+            f"遗忘 {forgetting_result.get('total_forgotten', 0)} 条"
+        )
+    except Exception as e:
+        results["smart_forgetting"] = {"success": False, "error": str(e)}
+        logger.error(f"✗ 智能遗忘失败: {e}")
+
     results["success"] = True
     results["timestamp"] = datetime.now().isoformat()
     return results

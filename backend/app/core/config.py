@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     COLD_MEMORY_THRESHOLD_DAYS: int = 30       # 冷记忆标记阈值（天）
     DEFAULT_HALF_LIFE_DAYS: int = 30           # 默认半衰期（天）
 
+    # ===== MCP Server =====
+    MCP_ENABLED: bool = True                   # 是否启用 MCP Server
+    MCP_TRANSPORT: str = "stdio"               # stdio | sse | streamable_http
+    MCP_HOST: str = "127.0.0.1"                # MCP HTTP/SSE 监听地址
+    MCP_PORT: int = 8765                       # MCP HTTP/SSE 监听端口
+    MCP_DEFAULT_USER_ID: int = 1               # MCP 默认用户 ID（无认证时）
+    MCP_DEFAULT_WORKSPACE_ID: Optional[int] = None  # MCP 默认 workspace ID
+    MCP_REQUIRE_AUTH: bool = False             # MCP 是否强制认证（生产环境建议 True）
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
