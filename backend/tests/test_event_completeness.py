@@ -6,7 +6,7 @@
 回调异常隔离、EventBus 工厂/重置。
 """
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -205,10 +205,10 @@ class TestRecentEvents:
     @pytest.mark.asyncio
     async def test_recent_since_filter(self, bus):
         old = _make_event(memory_id="old")
-        old.timestamp = datetime.utcnow() - timedelta(hours=1)
+        old.timestamp = datetime.now(timezone.utc) - timedelta(hours=1)
         await bus.publish(old)
         await bus.publish(_make_event(memory_id="new"))
-        cutoff = datetime.utcnow() - timedelta(minutes=1)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=1)
         recent = await bus.get_recent_events(since=cutoff)
         assert all(e.memory_id != "old" for e in recent)
 

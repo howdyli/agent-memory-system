@@ -72,7 +72,7 @@ async def list_events(
             workspace_id=e.workspace_id,
             memory_id=e.memory_id,
             memory_type=e.memory_type,
-            timestamp=e.timestamp.isoformat() + "Z" if hasattr(e.timestamp, "isoformat") else str(e.timestamp),
+            timestamp=e.timestamp.isoformat(),
             data=e.data,
             source=e.source,
         )
