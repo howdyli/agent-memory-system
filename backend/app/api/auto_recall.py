@@ -30,6 +30,7 @@ router = APIRouter(tags=["auto-recall"])
 
 class AutoRecallRequest(BaseModel):
     query: str
+    top_k: Optional[int] = None
 
 
 class GenerateSummaryRequest(BaseModel):
@@ -52,14 +53,14 @@ class UpdateConfigRequest(BaseModel):
     config: Dict[str, Any]
 
 
-@router.post("/")
+@router.post("")
 async def auto_recall_api(
     request: AutoRecallRequest,
     principal: Principal = Depends(get_current_principal)
 ):
     """自动记忆召回（一键召回相关记忆并注入上下文）"""
     try:
-        result = auto_recall(principal.user_id, request.query)
+        result = auto_recall(principal.user_id, request.query, top_k=request.top_k)
         if result["success"]:
             return result
         else:

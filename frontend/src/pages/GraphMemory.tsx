@@ -1,8 +1,8 @@
 import { useState, useCallback, useMemo } from 'react';
 import {
   Card, Row, Col, Table, Tag, Tabs, Input, Button, Form, Space, message,
-  Select, Modal, Popconfirm, Switch as AntSwitch, Statistic, Drawer,
-  Descriptions, Segmented, Tooltip, Badge, Divider,
+  Select, Modal, Popconfirm, Statistic, Drawer,
+  Descriptions, Segmented, Tooltip, Divider,
 } from 'antd';
 import {
   ShareAltOutlined, NodeIndexOutlined, LinkOutlined,
@@ -32,7 +32,7 @@ export default function GraphMemoryPage() {
   // ---- Data ----
   const [entityQuery, setEntityQuery] = useState<string | undefined>(undefined);
   const { data: entities = [], isLoading: entitiesLoading, refetch: refetchEntities } = useGraphEntities(entityQuery);
-  const [relEntityId, setRelEntityId] = useState<string | undefined>(undefined);
+  const [relEntityId] = useState<string | undefined>(undefined);
   const { data: relationships = [], isLoading: relsLoading, refetch: refetchRelationships } = useGraphRelationships(relEntityId);
   const { data: stats } = useGraphStatistics();
   const createEntity = useCreateEntity();
@@ -431,7 +431,7 @@ export default function GraphMemoryPage() {
 
             {selectedEntity.properties && (
               <>
-                <Divider orientation="left" style={{ fontSize: 13 }}>属性</Divider>
+                <Divider style={{ fontSize: 13 }}>属性</Divider>
                 <pre className="code-block" style={{ maxHeight: 200, overflow: 'auto', fontSize: 12 }}>
                   {typeof selectedEntity.properties === 'string'
                     ? selectedEntity.properties
@@ -440,7 +440,7 @@ export default function GraphMemoryPage() {
               </>
             )}
 
-            <Divider orientation="left" style={{ fontSize: 13 }}>快速操作</Divider>
+            <Divider style={{ fontSize: 13 }}>快速操作</Divider>
             <Space direction="vertical" style={{ width: '100%' }}>
               <Button
                 block icon={<SearchOutlined />}

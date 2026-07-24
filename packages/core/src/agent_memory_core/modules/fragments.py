@@ -359,11 +359,12 @@ class FragmentManager:
         fragment_type: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        lifecycle_status: str = "active",
     ) -> List[Dict]:
         """List fragments, auto-cleaning expired ones first."""
         self.cleanup_expired(workspace_id)
         return self._relational.list_fragments(
-            workspace_id, fragment_type=fragment_type, lifecycle_status="active", limit=limit, offset=offset,
+            workspace_id, fragment_type=fragment_type, lifecycle_status=lifecycle_status, limit=limit, offset=offset,
         )
 
     def cleanup_expired(self, workspace_id: Optional[int] = None) -> int:

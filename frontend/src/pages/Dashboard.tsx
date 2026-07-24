@@ -4,7 +4,6 @@ import {
   Statistic,
   Row,
   Col,
-  List,
   Tag,
   Button,
   Space,
@@ -224,35 +223,35 @@ export default function DashboardPage() {
             ) : sessionsError ? (
               <Empty description="对话列表加载失败" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
-              <List
-                dataSource={recentSessions}
-                locale={{ emptyText: '暂无对话' }}
-                renderItem={(session: SessionItem) => (
-                  <List.Item
-                    actions={[
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {recentSessions.length === 0 ? (
+                  <Empty description="暂无对话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                ) : (
+                  recentSessions.map((session: SessionItem) => (
+                    <Card
+                      key={session.session_id}
+                      size="small"
+                      styles={{ body: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{session.title || '未命名会话'}</div>
+                        <Space size="middle" style={{ marginTop: 4 }}>
+                          <span style={{ fontSize: 12, color: '#999' }}>{formatDateTime(session.updated_at)}</span>
+                          <Tag color="blue">{session.message_count ?? 0} 条消息</Tag>
+                        </Space>
+                      </div>
                       <Button
-                        key="view"
                         type="link"
                         size="small"
                         icon={<RightOutlined />}
                         onClick={() => navigate('/agent-chat', { state: { sessionId: session.session_id } })}
                       >
                         查看
-                      </Button>,
-                    ]}
-                  >
-                    <List.Item.Meta
-                      title={session.title || '未命名会话'}
-                      description={
-                        <Space size="middle">
-                          <span>{formatDateTime(session.updated_at)}</span>
-                          <Tag color="blue">{session.message_count ?? 0} 条消息</Tag>
-                        </Space>
-                      }
-                    />
-                  </List.Item>
+                      </Button>
+                    </Card>
+                  ))
                 )}
-              />
+              </Space>
             )}
           </Card>
         </Col>
@@ -264,33 +263,42 @@ export default function DashboardPage() {
             ) : healthError ? (
               <Empty description="健康状态获取失败" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
-              <List>
-                <List.Item>
-                  <List.Item.Meta
-                    title="后端服务"
-                    description={healthData?.service || 'agent-memory-backend'}
-                  />
-                  <Badge
-                    status={isHealthy ? 'success' : 'error'}
-                    text={isHealthy ? '健康' : '异常'}
-                  />
-                </List.Item>
-                <List.Item>
-                  <List.Item.Meta title="数据库" description="SQLite 持久化存储" />
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>后端服务</div>
+                    <div style={{ fontSize: 12, color: '#999' }}>{healthData?.service || 'agent-memory-backend'}</div>
+                  </div>
+                  <Badge status={isHealthy ? 'success' : 'error'} text={isHealthy ? '健康' : '异常'} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>数据库</div>
+                    <div style={{ fontSize: 12, color: '#999' }}>SQLite 持久化存储</div>
+                  </div>
                   <Badge status={isHealthy ? 'success' : 'error'} text={isHealthy ? '正常' : '异常'} />
-                </List.Item>
-                <List.Item>
-                  <List.Item.Meta title="Redis" description="内存缓存与变量存储" />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>Redis</div>
+                    <div style={{ fontSize: 12, color: '#999' }}>内存缓存与变量存储</div>
+                  </div>
                   <Badge status={isHealthy ? 'success' : 'error'} text={isHealthy ? '正常' : '异常'} />
-                </List.Item>
-                <List.Item>
-                  <List.Item.Meta title="向量库" description="ChromaDB 语义检索" />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>向量库</div>
+                    <div style={{ fontSize: 12, color: '#999' }}>ChromaDB 语义检索</div>
+                  </div>
                   <Badge status={isHealthy ? 'success' : 'error'} text={isHealthy ? '正常' : '异常'} />
-                </List.Item>
-                <List.Item>
-                  <List.Item.Meta title="最后检查" description={formatDateTime(healthData?.timestamp)} />
-                </List.Item>
-              </List>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>最后检查</div>
+                    <div style={{ fontSize: 12, color: '#999' }}>{formatDateTime(healthData?.timestamp)}</div>
+                  </div>
+                </div>
+              </Space>
             )}
           </Card>
         </Col>

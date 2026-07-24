@@ -59,11 +59,11 @@ def auth(client):
 def _create_fragment(client, auth, content: str, ftype: str = "info"):
     """创建记忆片段，返回片段 ID"""
     resp = client.post(
-        "/api/v1/memory/fragments/",
+        "/api/v1/memory/fragments",
         json={"fragment_type": ftype, "content": content, "importance_score": 0.8},
         headers=auth,
     )
-    assert resp.status_code == 200, f"创建片段失败 ({resp.status_code}): {resp.text}"
+    assert resp.status_code == 201, f"创建片段失败 ({resp.status_code}): {resp.text}"
     data = resp.json()
     return data.get("fragment_id")
 
@@ -82,7 +82,7 @@ def _set_variable(client, auth, key: str, value: str):
 def _cleanup_test_data(client, auth):
     """清理测试数据（删除测试用户的片段）"""
     # 获取所有片段
-    resp = client.get("/api/v1/memory/fragments/?limit=200", headers=auth)
+    resp = client.get("/api/v1/memory/fragments?limit=200", headers=auth)
     if resp.status_code == 200:
         fragments = resp.json().get("fragments", [])
         for f in fragments:
@@ -569,13 +569,13 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("测试 1: 重复片段检测")
     print("=" * 60)
-    r = session.post(f"{BASE}/memory/fragments/", json={
+    r = session.post(f"{BASE}/memory/fragments", json={
         "fragment_type": "info", "content": "用户在腾讯工作，负责后端开发", "importance_score": 0.8
     })
     id1 = r.json().get("fragment_id")
     print(f"创建片段 1: id={id1}")
 
-    r = session.post(f"{BASE}/memory/fragments/", json={
+    r = session.post(f"{BASE}/memory/fragments", json={
         "fragment_type": "info", "content": "用户在腾讯上班，做后端开发相关工作", "importance_score": 0.8
     })
     id2 = r.json().get("fragment_id")

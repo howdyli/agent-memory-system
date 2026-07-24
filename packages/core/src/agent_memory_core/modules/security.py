@@ -278,9 +278,12 @@ class SecurityManager:
             if word in FORBIDDEN_KEYWORDS:
                 return False, f"SQL contains forbidden keyword: {word}"
 
-        # Forbidden patterns
+        # Forbidden patterns — check on SQL with string literals stripped
+        # to avoid false positives on characters inside string values
+        # (e.g., semicolons or double-dashes inside 'text; with -- semicolon')
+        sql_for_patterns = self._strip_string_literals(sql_upper)
         for pattern in FORBIDDEN_PATTERNS:
-            if re.search(pattern, sql_upper):
+            if re.search(pattern, sql_for_patterns):
                 return False, f"SQL contains forbidden pattern: {pattern}"
 
         # Quote balance
@@ -504,3 +507,23 @@ class SecurityManager:
         if match:
             return match.group(1).upper()
         return None
+
+    @staticmethod
+    def _strip_string_literals(sql: str) -> str:
+        """Remove string literal contents to avoid false positives in pattern checks.
+
+        Replaces the content of single-quoted and double-quoted literals
+        with empty quotes, preserving the quote characters themselves so
+        quote-balance checks still work. Handles SQL escaped quotes ('').
+
+        Args:
+            sql: SQL text (typically uppercased).
+
+        Returns:
+            SQL with string literal contents replaced by empty quotes.
+        """
+        # Single-quoted strings: '(?:[^']|'')*' handles escaped '' inside
+        result = re.sub(r"'(?:[^']|'')*'", "''", sql)
+        # Double-quoted identifiers: "(?:[^"]|"")*"
+        result = re.sub(r'"(?:[^"]|"")*"', '""', result)
+        return result

@@ -394,7 +394,7 @@ app.include_router(smart_forgetting.router, prefix="/api/v1", tags=["smart-forge
 # ------------------------------------------------------------------
 _mcp_mounted = False
 try:
-    from app.mcp_server import mount_to_app, list_mcp_tools, _mcp_available
+    from app.mcp_server import mount_to_app, list_mcp_tools, _mcp_available, _mounted_transport
     if _mcp_available and settings.MCP_ENABLED:
         _mcp_mounted = mount_to_app(app, path="/mcp")
 except Exception as e:
@@ -413,7 +413,7 @@ async def mcp_tools_endpoint():
     return {
         "success": True,
         "mounted": _mcp_mounted,
-        "transport": settings.MCP_TRANSPORT if _mcp_mounted else None,
+        "transport": _mounted_transport if _mcp_mounted else None,
         "endpoint": "/mcp" if _mcp_mounted else None,
         "tools": list_mcp_tools() if _mcp_available else [],
         "tools_count": len(list_mcp_tools()) if _mcp_available else 0,
@@ -428,7 +428,7 @@ async def mcp_status_endpoint():
         "enabled": settings.MCP_ENABLED,
         "sdk_available": _mcp_available,
         "mounted": _mcp_mounted,
-        "transport": settings.MCP_TRANSPORT,
+        "transport": _mounted_transport if _mcp_mounted else settings.MCP_TRANSPORT,
         "host": settings.MCP_HOST,
         "port": settings.MCP_PORT,
     }

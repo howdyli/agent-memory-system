@@ -63,7 +63,7 @@ export class FragmentsAPI {
     importance_score?: number;
     ttl?: number;
   }): Promise<Record<string, unknown>> {
-    return this.t.request('POST', '/memory/fragments/', {
+    return this.t.request('POST', '/memory/fragments', {
       json: {
         fragment_type: data.fragment_type ?? 'fact',
         content: data.content,
@@ -83,7 +83,7 @@ export class FragmentsAPI {
   }
 
   async list(type?: string): Promise<MemoryFragment[]> {
-    const r = await this.t.request<{ fragments?: MemoryFragment[] }>('GET', '/memory/fragments/', {
+    const r = await this.t.request<{ fragments?: MemoryFragment[] }>('GET', '/memory/fragments', {
       params: type ? { type } : {},
     });
     return r?.fragments ?? [];
@@ -178,8 +178,8 @@ export class GraphAPI {
 export class RecallAPI {
   constructor(private t: Transport) {}
 
-  async auto(query: string): Promise<RecallResult> {
-    return this.t.request('POST', '/memory/recall/', { json: { query } });
+  async auto(query: string, topK?: number): Promise<RecallResult> {
+    return this.t.request('POST', '/memory/recall', { json: { query, top_k: topK } });
   }
 
   async search(query: string, topK = 5): Promise<Record<string, unknown>[]> {

@@ -105,7 +105,7 @@ class ExtractRequest(BaseModel):
 # 1. 实体管理 API
 # ============================================================
 
-@router.post("/memory/graph/entities", summary="创建实体", description="创建或获取知识图谱实体（人物/组织/地点/事件/概念）")
+@router.post("/memory/graph/entities", status_code=status.HTTP_201_CREATED, summary="创建实体", description="创建或获取知识图谱实体（人物/组织/地点/事件/概念）")
 @handle_service_result
 async def create_entity(
     request: EntityCreateRequest,
@@ -223,7 +223,7 @@ async def merge_entities_api(
 # 2. 关系管理 API
 # ============================================================
 
-@router.post("/memory/graph/relationships", summary="创建关系", description="创建两个实体之间的关系（支持时序属性和置信度）")
+@router.post("/memory/graph/relationships", status_code=status.HTTP_201_CREATED, summary="创建关系", description="创建两个实体之间的关系（支持时序属性和置信度）")
 @handle_service_result
 async def create_relationship(
     request: RelationshipCreateRequest,

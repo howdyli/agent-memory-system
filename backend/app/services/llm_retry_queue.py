@@ -126,7 +126,7 @@ async def _process_task(task: Dict[str, Any]) -> None:
     from app.services.llm_backend_service import llm_chat
 
     task["attempts"] += 1
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def _call():
         # 重试路径不再入队，避免递归

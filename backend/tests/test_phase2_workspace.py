@@ -243,7 +243,7 @@ class TestBackwardCompatibility:
 
     def test_memory_fragments_list(self, client, auth_headers):
         """记忆片段列表应正常返回。"""
-        resp = client.get("/api/v1/memory/fragments/", headers=auth_headers)
+        resp = client.get("/api/v1/memory/fragments", headers=auth_headers)
         assert resp.status_code == 200
 
     def test_health_check(self, client):

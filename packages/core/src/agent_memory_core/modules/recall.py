@@ -108,6 +108,7 @@ class RecallManager:
         """
         try:
             _top_k = top_k or self.config["semantic_top_k"]
+            _budget = budget_tokens if budget_tokens is not None else 2000
             _update_lc = update_lifecycle if update_lifecycle is not None else self.config.get("lifecycle_recall_update", True)
 
             if self._events:
@@ -174,7 +175,7 @@ class RecallManager:
             ]
 
             # 3. Budget-controlled selection (simple token estimation)
-            selected = self._select_by_budget(active_memories, query, budget_tokens)
+            selected = self._select_by_budget(active_memories, query, _budget)
 
             if not selected:
                 return RecallResult(total_candidates=total_candidates)

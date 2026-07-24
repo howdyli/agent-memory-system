@@ -240,33 +240,54 @@ class MemoryEngine:
         """Set a memory variable. Delegates to VariableManager."""
         return self._variable_mgr.set(workspace_id, key, value, ttl=ttl)
 
-    def recall(self, workspace_id: int, query: str, top_k: int = 5, budget_tokens: Optional[int] = None) -> Dict:
-        """Recall relevant memories — delegates to RecallManager."""
+    def recall(self, workspace_id: int, query: str, top_k: int = 5, budget_tokens: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Recall relevant memories — combines variables and fragments.
+
+        Returns a list of memory items, each tagged with a ``type`` field
+        (``"variable"`` or ``"fragment"``).
+        """
         self._events.emit(MemoryEvent(
             event_type=MemoryEventType.RECALL_TRIGGERED,
             workspace_id=workspace_id,
             data={"query": query, "top_k": top_k},
         ))
 
-        result = self._recall_mgr.recall(
+        results: List[Dict[str, Any]] = []
+
+        # 1. Variable match — exact key or substring match
+        variables = self._variable_mgr.list(workspace_id)
+        query_lower = query.lower()
+        for key, value in variables.items():
+            if key.lower() == query_lower or query_lower in key.lower() or key.lower() in query_lower:
+                results.append({
+                    "type": "variable",
+                    "key": key,
+                    "value": value,
+                })
+
+        # 2. Fragment recall via RecallManager
+        recall_result = self._recall_mgr.recall(
             workspace_id=workspace_id,
             query=query,
             top_k=top_k,
             budget_tokens=budget_tokens,
         )
+        for mem in recall_result.memories:
+            results.append({
+                "type": "fragment",
+                "content": mem.get("content", ""),
+                "fragment_type": mem.get("fragment_type", ""),
+                "similarity": mem.get("similarity", 0),
+                "fragment_id": mem.get("id"),
+            })
 
         self._events.emit(MemoryEvent(
             event_type=MemoryEventType.RECALL_COMPLETED,
             workspace_id=workspace_id,
-            data={"query": query, "results_count": len(result.memories)},
+            data={"query": query, "results_count": len(results)},
         ))
 
-        return {
-            "memories": result.memories,
-            "context_text": result.context_text,
-            "total_candidates": result.total_candidates,
-            "token_used": result.token_used,
-        }
+        return results
 
     def forget(self, workspace_id: int, key: str) -> bool:
         """Delete a memory variable. Delegates to VariableManager."""

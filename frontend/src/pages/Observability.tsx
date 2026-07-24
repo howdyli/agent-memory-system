@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Tabs, Input, Button, Form, InputNumber, Space, message, Spin, Descriptions, Select, DatePicker } from 'antd';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { Card, Row, Col, Statistic, Table, Tag, Tabs, Input, Button, Space, message, Descriptions, Select } from 'antd';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
   BarChartOutlined, DatabaseOutlined, FileTextOutlined, SearchOutlined,
   ThunderboltOutlined, ExperimentOutlined, ReloadOutlined,
@@ -151,7 +151,7 @@ export default function ObservabilityPage() {
                     {typeDistribution.length > 0 ? (
                       <ResponsiveContainer width="100%" height={240}>
                         <PieChart>
-                          <Pie data={typeDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                          <Pie data={typeDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
                             {typeDistribution.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                           </Pie>
                           <Tooltip />

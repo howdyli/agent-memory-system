@@ -296,7 +296,7 @@ def test_fragment_memory(token: str, result: TestResult):
 
     created_ids = []
     for frag in test_fragments:
-        resp = requests.post(f"{BASE_URL}/memory/fragments/", json=frag, headers=headers)
+        resp = requests.post(f"{BASE_URL}/memory/fragments", json=frag, headers=headers)
         if resp.status_code == 200:
             data = resp.json()
             fid = data.get("fragment_id") or data.get("id")
@@ -308,7 +308,7 @@ def test_fragment_memory(token: str, result: TestResult):
 
     # 3.2 列出片段
     print(f"\n 3.2 列出所有片段")
-    resp = requests.get(f"{BASE_URL}/memory/fragments/", headers=headers)
+    resp = requests.get(f"{BASE_URL}/memory/fragments", headers=headers)
     if resp.status_code == 200:
         data = resp.json()
         fragments = data.get("fragments", [])
@@ -342,7 +342,7 @@ def test_fragment_memory(token: str, result: TestResult):
     # 3.4 按类型过滤
     print(f"\n📌 3.4 按类型过滤片段")
     for ftype in ["info", "preference", "event"]:
-        resp = requests.get(f"{BASE_URL}/memory/fragments/", params={"type": ftype}, headers=headers)
+        resp = requests.get(f"{BASE_URL}/memory/fragments", params={"type": ftype}, headers=headers)
         if resp.status_code == 200:
             data = resp.json()
             fragments = data.get("fragments", [])
@@ -402,7 +402,7 @@ def test_memory_integration(token: str, result: TestResult):
         {"content": "用户下周要去北京出差参加产品评审会", "fragment_type": "event", "importance_score": 0.8},
     ]
     for frag in setup_fragments:
-        requests.post(f"{BASE_URL}/memory/fragments/", json=frag, headers=headers)
+        requests.post(f"{BASE_URL}/memory/fragments", json=frag, headers=headers)
     result.ok("预置片段", f"{len(setup_fragments)} 个语义片段已创建")
 
     # 4.3 Agent 对话 - 测试记忆自动召回

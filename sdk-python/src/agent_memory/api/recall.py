@@ -11,12 +11,14 @@ class RecallAPI:
     def __init__(self, transport: Transport):
         self._t = transport
 
-    def auto(self, query: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+    def auto(self, query: str, user_id: Optional[str] = None, top_k: Optional[int] = None) -> Dict[str, Any]:
         """自动召回相关记忆。"""
         data: Dict[str, Any] = {"query": query}
         if user_id:
             data["user_id"] = user_id
-        return self._t.request("POST", "/memory/recall/", json=data)
+        if top_k is not None:
+            data["top_k"] = top_k
+        return self._t.request("POST", "/memory/recall", json=data)
 
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """搜索相关记忆。"""

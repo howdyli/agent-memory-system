@@ -224,10 +224,9 @@ export function evaluateCondition(
 
   // For date fields with non-between operators, compare at day precision.
   if (
-    (field.toLowerCase().includes('at') ||
-      field.toLowerCase().includes('time') ||
-      field.toLowerCase().includes('date')) &&
-    operator !== 'contains'
+    field.toLowerCase().includes('at') ||
+    field.toLowerCase().includes('time') ||
+    field.toLowerCase().includes('date')
   ) {
     const t = raw ? dayjs(raw as string | number | Date) : null;
     const v = value ? dayjs(value as string | number | Date) : null;
@@ -362,7 +361,6 @@ export default function AdvancedFilter({
 
   const handleOperatorChange = (index: number, operator: FilterOperator) => {
     const condition = conditions[index];
-    const field = fields.find((f) => f.key === condition.field);
     let value: unknown = condition.value;
     if (operator === 'between' && !Array.isArray(value)) {
       value = [null, null];

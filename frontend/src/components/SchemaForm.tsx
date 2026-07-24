@@ -5,7 +5,7 @@ import type { FormInstance } from 'antd';
 const { TextArea } = Input;
 const { Text } = Typography;
 
-interface SchemaProperty {
+export interface SchemaProperty {
   type?: string;
   description?: string;
   enum?: string[];

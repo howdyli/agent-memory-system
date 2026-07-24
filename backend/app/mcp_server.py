@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 _mcp_available = False
+_mounted_transport: Optional[str] = None
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.server.session import ServerSession
@@ -365,17 +366,20 @@ def mount_to_app(app, path: str = "/mcp") -> bool:
 
     try:
         mcp = get_mcp_server()
+        global _mounted_transport
         # FastMCP 1.x 提供 streamable_http_app() / sse_app() 方法返回 ASGI 应用
         if hasattr(mcp, "streamable_http_app"):
             asgi_app = mcp.streamable_http_app()
+            _mounted_transport = "streamable_http"
         elif hasattr(mcp, "sse_app"):
             asgi_app = mcp.sse_app()
+            _mounted_transport = "sse"
         else:
             logger.warning("FastMCP 版本不支持 HTTP/SSE 传输，跳过挂载")
             return False
 
         app.mount(path, asgi_app)
-        logger.info(f"✓ MCP Server 已挂载到 {path}")
+        logger.info(f"✓ MCP Server 已挂载到 {path} (transport={_mounted_transport})")
         return True
     except Exception as e:
         logger.error(f"挂载 MCP Server 失败: {e}")

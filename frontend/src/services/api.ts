@@ -163,9 +163,9 @@ export const fragmentsApi = {
   listPrompts: () => apiClient.get('/memory/fragments/prompts'),
   createPrompt: (data: { name: string; template: string; description?: string }) =>
     apiClient.post('/memory/fragments/prompts', data),
-  list: (type?: string) => apiClient.get('/memory/fragments/', { params: { type } }),
+  list: (type?: string) => apiClient.get('/memory/fragments', { params: { type } }),
   create: (data: { type?: string; fragment_type?: string; content: string; importance_score?: number; ttl?: number }) =>
-    apiClient.post('/memory/fragments/', { fragment_type: data.fragment_type || data.type, content: data.content, importance_score: data.importance_score, ttl: data.ttl }),
+    apiClient.post('/memory/fragments', { fragment_type: data.fragment_type || data.type, content: data.content, importance_score: data.importance_score, ttl: data.ttl }),
   get: (fragmentId: number) => apiClient.get(`/memory/fragments/${fragmentId}`),
   update: (fragmentId: number, data: { content?: string; importance_score?: number; ttl?: number }) =>
     apiClient.put(`/memory/fragments/${fragmentId}`, data),
@@ -179,8 +179,8 @@ export const fragmentsApi = {
 
 // ==================== Auto Recall API ====================
 export const recallApi = {
-  auto: (query: string, userId?: string) =>
-    apiClient.post('/memory/recall/', { query, user_id: userId }),
+  auto: (query: string, userId?: string, topK?: number) =>
+    apiClient.post('/memory/recall', { query, user_id: userId, top_k: topK }),
   summary: (userId?: string) => apiClient.post('/memory/recall/summary', { user_id: userId }),
   search: (query: string, topK?: number) =>
     apiClient.post('/memory/recall/search', { query, top_k: topK }),

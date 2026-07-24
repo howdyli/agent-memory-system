@@ -8,7 +8,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 
 export default function WorkspaceSettings() {
   const { message: msgApi } = App.useApp();
-  const { workspaces, currentWorkspaceId, loadWorkspaces } = useWorkspaceStore();
+  const { currentWorkspaceId, loadWorkspaces } = useWorkspaceStore();
 
   // Workspace state
   const [wsList, setWsList] = useState<Workspace[]>([]);
@@ -56,13 +56,6 @@ export default function WorkspaceSettings() {
       msgApi.success('成员已添加');
       setMemberOpen(false);
       memberForm.resetFields();
-    } catch { /* ignore */ }
-  };
-
-  const handleRemoveMember = async (wsId: number, userId: number) => {
-    try {
-      await workspaceApi.removeMember(wsId, userId);
-      msgApi.success('成员已移除');
     } catch { /* ignore */ }
   };
 

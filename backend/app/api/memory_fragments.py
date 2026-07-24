@@ -4,7 +4,7 @@
 提供记忆片段的 CRUD、Prompt 模板管理、语义搜索 API
 """
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 from typing import Optional, Any, Dict, List
 
@@ -194,7 +194,7 @@ async def get_prompt_api(
         raise AppException(str(e))
 
 
-@router.post("/prompts")
+@router.post("/prompts", status_code=status.HTTP_201_CREATED)
 async def create_prompt_api(
     request: CreatePromptRequest,
     principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
@@ -244,7 +244,7 @@ async def render_prompt_api(
 # Task 13 & 15: 记忆片段 CRUD
 # ============================================================
 
-@router.post("/")
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_fragment_api(
     request: CreateFragmentRequest,
     principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
@@ -271,7 +271,7 @@ async def create_fragment_api(
         raise AppException(str(e))
 
 
-@router.get("/")
+@router.get("")
 async def list_fragments_api(
     fragment_type: Optional[str] = None,
     limit: Optional[int] = 100,

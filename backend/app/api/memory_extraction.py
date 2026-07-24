@@ -495,11 +495,10 @@ async def preview_extraction(
         )
 
         if not result.get("success"):
-            return {
-                "success": False,
-                "error": result.get("error", "抽取失败"),
-                "fallback_available": True,
-            }
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "抽取失败"),
+            )
 
         return {
             "success": True,
@@ -519,11 +518,10 @@ async def preview_extraction(
         raise
     except Exception as e:
         logger.error(f"✗ 预览抽取失败: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "fallback_available": True,
-        }
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
 
 
 # 测试函数

@@ -92,7 +92,7 @@ def record_trace_event(
             metadata=metadata,
         )
         event_bus = get_event_bus()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         loop.create_task(event_bus.publish(event))
     except Exception as e:
         logger.debug(f"EventBus publish failed (non-critical): {e}")

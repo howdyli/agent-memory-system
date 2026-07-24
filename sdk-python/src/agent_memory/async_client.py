@@ -103,7 +103,7 @@ class AsyncMemoryClient:
 
     async def recall_context(self, query: str, top_k: int = 5) -> str:
         try:
-            result = await self._transport.request("POST", "/memory/recall/", json={"query": query})
+            result = await self._transport.request("POST", "/memory/recall", json={"query": query, "top_k": top_k})
             if isinstance(result, dict) and result.get("context"):
                 return result["context"]
             return ""

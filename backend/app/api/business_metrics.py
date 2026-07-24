@@ -8,7 +8,7 @@
 - GET /api/v1/system/business-metrics — 业务指标快照
 """
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, Any
 
 from app.core.auth import Principal, get_current_principal
@@ -172,8 +172,4 @@ async def get_business_metrics(
 
     except Exception as e:
         logger.error(f"业务指标查询失败: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "metrics": {},
-        }
+        raise HTTPException(status_code=500, detail=str(e))

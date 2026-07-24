@@ -189,7 +189,7 @@ class TestAutoRecallAPI:
         assert resp.status_code in [200, 404]
 
     def test_auto_recall(self, client, auth_headers):
-        resp = client.post("/api/v1/memory/recall/", json={
+        resp = client.post("/api/v1/memory/recall", json={
             "query": "What are my preferences?",
             "top_k": 5
         }, headers=auth_headers)
