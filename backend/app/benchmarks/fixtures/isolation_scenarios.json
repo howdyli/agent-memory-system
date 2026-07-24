@@ -1,0 +1,38 @@
+[
+  {
+    "scenario": "variable_isolation",
+    "description": "W1 设 key=v1，W2 查 key → W2 返回 None",
+    "resource": "memory_variables",
+    "expected": "W2 查不到 W1 的变量"
+  },
+  {
+    "scenario": "fragment_isolation",
+    "description": "W1 创建片段，W2 列表 → W2 列表不含 W1 片段",
+    "resource": "memory_fragments",
+    "expected": "W2 列表不含 W1 的片段"
+  },
+  {
+    "scenario": "table_isolation",
+    "description": "W1 建表 t，W2 建表 t → 两者独立",
+    "resource": "memory_tables",
+    "expected": "同名表互不干扰，表 ID 不同"
+  },
+  {
+    "scenario": "graph_isolation",
+    "description": "W1 建实体 E，W2 查 E → W2 查不到",
+    "resource": "memory_graph_entities",
+    "expected": "W2 搜索不到 W1 的实体"
+  },
+  {
+    "scenario": "cross_workspace_access",
+    "description": "W1 用户用 W2 workspace_id 访问 → 应被拒绝或返回空",
+    "resource": "cross_workspace",
+    "expected": "W1 用户无法访问 W2 数据"
+  },
+  {
+    "scenario": "rbac_permission",
+    "description": "viewer 角色尝试 DELETE → 403",
+    "resource": "rbac",
+    "expected": "viewer 无 delete 权限"
+  }
+]

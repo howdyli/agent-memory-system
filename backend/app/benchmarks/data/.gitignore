@@ -1,0 +1,8 @@
+# 此目录用于存放真实基准数据集（不入版本控制）
+# 下载方式见各套件代码 docstring
+
+# LongMemEval-S
+longmemeval_s_cleaned.json
+
+# LoCoMo
+locomo/

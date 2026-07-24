@@ -86,3 +86,6 @@ packages/sdk-python/src/*.egg-info/
 
 # draw.io 自动保存备份
 .$*.drawio.bkp
+
+# Benchmark generated results
+backend/results/

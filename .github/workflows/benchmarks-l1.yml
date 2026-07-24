@@ -1,0 +1,107 @@
+name: Benchmarks L1
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  l1-benchmarks:
+    name: L1 内部质量基准
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ../sdk-python/
+
+      - name: Run recall_quality suite
+        working-directory: backend
+        env:
+          REDIS_URL: "fakeredis://"
+        run: |
+          python -m app.benchmarks.runner run --suite recall_quality \
+            --output results/l1_recall_quality.json \
+            --report results/l1_recall_quality.md
+
+      - name: Run multi_tenancy suite
+        working-directory: backend
+        env:
+          REDIS_URL: "fakeredis://"
+        run: |
+          python -m app.benchmarks.runner run --suite multi_tenancy \
+            --output results/l1_multi_tenancy.json \
+            --report results/l1_multi_tenancy.md
+
+      - name: Run sdk_equivalence suite (Python HTTP vs Embedded)
+        working-directory: backend
+        env:
+          REDIS_URL: "fakeredis://"
+        run: |
+          # 跳过 TypeScript（PR 环境无 node SDK 依赖）
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from app.benchmarks.equivalence.sdk_equivalence import SdkEquivalenceSuite
+          suite = SdkEquivalenceSuite(config={'skip_ts': True, 'user_id': 888})
+          result = suite.execute()
+          print(f'sdk_equivalence passed: {result.passed}')
+          print(f'metrics: {result.metrics}')
+          if not result.passed:
+              sys.exit(1)
+          "
+
+      - name: Generate combined report
+        working-directory: backend
+        env:
+          REDIS_URL: "fakeredis://"
+        run: |
+          python -c "
+          import json, sys
+          sys.path.insert(0, '.')
+          from app.benchmarks.base import BenchmarkResult
+          from app.benchmarks.report import generate_combined_report
+
+          results = []
+          for f in ['results/l1_recall_quality.json', 'results/l1_multi_tenancy.json']:
+              try:
+                  with open(f) as fh:
+                      data = json.load(fh)
+                  for item in data.get('results', []):
+                      results.append(BenchmarkResult(
+                          suite_name=item['suite_name'],
+                          level=item['level'],
+                          metrics=item.get('metrics', {}),
+                          targets=item.get('targets', {}),
+                          passed=item.get('passed', False),
+                          details=item.get('details', []),
+                      ))
+              except FileNotFoundError:
+                  pass
+
+          report = generate_combined_report(results)
+          with open('results/l1_report.md', 'w') as fh:
+              fh.write(report)
+          print(report)
+          "
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-benchmark-results
+          path: backend/results/

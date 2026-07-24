@@ -146,6 +146,9 @@ class MemoryAdapter:
 
     def __init__(self, user_id: int, workspace_id: Optional[int] = None):
         from app.services.agent_memory_sdk import AgentMemoryClient
+        # 确保测试用户存在（避免 FOREIGN KEY constraint failed 导致静默失败）
+        from app.benchmarks.performance._utils import ensure_perf_user
+        ensure_perf_user(user_id)
         self.sdk = AgentMemoryClient(user_id, workspace_id)
         self.user_id = user_id
         self.workspace_id = workspace_id
