@@ -51,6 +51,7 @@ def process_user_input(user_id: int,
             conversation=conversation,
             auto_store=True,
             session_id=session_id,
+            workspace_id=workspace_id,
         )
         
         if not llm_result.get("success"):
@@ -68,7 +69,8 @@ def process_user_input(user_id: int,
                     user_id=user_id,
                     key=key,
                     value=value,
-                    session_id=session_id
+                    session_id=session_id,
+                    workspace_id=workspace_id,
                 )
             return {
                 "success": True,
@@ -154,8 +156,8 @@ def inject_memory_into_prompt(user_id: int,
     try:
         # 1. 获取所有记忆变量
         from app.services.memory_variable_service import list_memory_variables
-        memory_vars = list_memory_variables(user_id, session_id)
-        
+        memory_vars = list_memory_variables(user_id, session_id, workspace_id)
+
         # 2. 如果有自定义变量，合并（自定义变量优先）
         if custom_variables:
             memory_vars.update(custom_variables)
@@ -192,8 +194,8 @@ def generate_personalized_response(user_id: int,
     try:
         # 1. 获取所有记忆变量
         from app.services.memory_variable_service import list_memory_variables
-        memory_vars = list_memory_variables(user_id, session_id)
-        
+        memory_vars = list_memory_variables(user_id, session_id, workspace_id)
+
         # 2. 合并上下文
         if context:
             memory_vars.update(context)
@@ -244,7 +246,8 @@ def batch_extract_from_conversation(user_id: int,
                             user_id=user_id,
                             key=key,
                             value=value,
-                            session_id=session_id
+                            session_id=session_id,
+                            workspace_id=workspace_id,
                         )
                         extracted_count += 1
                         all_extracted[key] = value
@@ -282,7 +285,7 @@ def get_user_context_for_llm(user_id: int,
     try:
         # 获取所有记忆变量
         from app.services.memory_variable_service import list_memory_variables
-        memory_vars = list_memory_variables(user_id, session_id)
+        memory_vars = list_memory_variables(user_id, session_id, workspace_id)
         
         if not memory_vars:
             return ""

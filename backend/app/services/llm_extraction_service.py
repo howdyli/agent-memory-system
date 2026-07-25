@@ -259,6 +259,7 @@ def _store_with_dedup(
     content: str,
     importance_score: float = 0.5,
     dedup_threshold: float = 0.85,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     存储记忆片段前进行去重检查。
@@ -278,6 +279,7 @@ def _store_with_dedup(
             query=content,
             top_k=5,
             threshold=0.3,
+            workspace_id=workspace_id,
         )
 
         if semantic_result.get("success"):
@@ -304,6 +306,7 @@ def _store_with_dedup(
         fragment_type=fragment_type,
         content=content,
         importance_score=importance_score,
+        workspace_id=workspace_id,
     )
     return result
 
@@ -356,6 +359,7 @@ def llm_extract_memories(
     auto_store: bool = True,
     session_id: Optional[str] = None,
     system_prompt: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     用 LLM 从对话中智能抽取记忆。
@@ -430,6 +434,7 @@ def llm_extract_memories(
                     ok = set_memory_variable(
                         user_id=user_id, key=key, value=value,
                         session_id=session_id,
+                        workspace_id=workspace_id,
                     )
                     if ok:
                         stored_count += 1
@@ -442,6 +447,7 @@ def llm_extract_memories(
                         fragment_type="info",
                         content=str(fact).strip(),
                         importance_score=0.6,
+                        workspace_id=workspace_id,
                     )
                     if result.get("skipped"):
                         dedup_skipped += 1
@@ -456,6 +462,7 @@ def llm_extract_memories(
                         fragment_type="preference",
                         content=str(pref).strip(),
                         importance_score=0.5,
+                        workspace_id=workspace_id,
                     )
                     if result.get("skipped"):
                         dedup_skipped += 1
@@ -470,6 +477,7 @@ def llm_extract_memories(
                         fragment_type="plan",
                         content=str(plan).strip(),
                         importance_score=0.5,
+                        workspace_id=workspace_id,
                     )
                     if result.get("skipped"):
                         dedup_skipped += 1
