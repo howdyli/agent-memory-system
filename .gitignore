@@ -89,3 +89,6 @@ packages/sdk-python/src/*.egg-info/
 
 # Benchmark generated results
 backend/results/
+
+# Benchmark large data files (>100MB, exceeds GitHub limit)
+backend/app/benchmarks/data/longmemeval_s.json
