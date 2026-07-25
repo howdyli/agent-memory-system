@@ -84,6 +84,16 @@ def run_benchmark(
 
     adapter = MemoryAdapter(user_id, workspace_id)
 
+    # 当不使用 LLM 生成答案时，也禁用混合检索的 LLM 重排序，避免网络超时
+    _prev_rerank = None
+    if not use_llm_answer:
+        try:
+            from app.services.hybrid_search_service import get_config, update_config
+            _prev_rerank = get_config().get("rerank_enabled")
+            update_config({"rerank_enabled": False})
+        except Exception:
+            pass
+
     for i, instance in enumerate(instances):
         qid = instance.get("question_id", f"q{i}")
         question = instance.get("question", "")
@@ -176,6 +186,14 @@ def run_benchmark(
         status = "✓" if majority_correct else "✗"
         stability_str = f" stability={stability:.0%}" if repeat > 1 else ""
         logger.info(f"  {status} correct={majority_correct} evaluator={representative_evaluator}{stability_str}")
+
+    # 恢复 LLM 重排序配置
+    if _prev_rerank is not None:
+        try:
+            from app.services.hybrid_search_service import update_config
+            update_config({"rerank_enabled": _prev_rerank})
+        except Exception:
+            pass
 
     # 6. 计算汇总指标
     metrics = compute_metrics(results)

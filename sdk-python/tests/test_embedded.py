@@ -30,13 +30,14 @@ class TestEmbeddedTransportDispatch:
             list(transport.request_stream("POST", "/test"))
 
     def test_unimplemented_path_raises_error(self):
-        """Unimplemented paths should raise EmbeddedModeError or ModuleNotFoundError."""
+        """Unimplemented paths should raise EmbeddedModeError or ImportError."""
         transport = EmbeddedTransport(user_id=1)
         # Force initialized to skip import check
         transport._initialized = True
         # In SDK-only env without backend, _dispatch raises ModuleNotFoundError
-        # With backend, it raises EmbeddedModeError for unknown paths
-        with pytest.raises((EmbeddedModeError, ModuleNotFoundError)):
+        # With partial backend on path, may raise ImportError for missing submodules
+        # With full backend, it raises EmbeddedModeError for unknown paths
+        with pytest.raises((EmbeddedModeError, ModuleNotFoundError, ImportError)):
             transport._dispatch("GET", "/unknown/path")
 
     def test_close_is_noop(self):

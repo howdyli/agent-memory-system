@@ -58,9 +58,14 @@ class ChromaDBClient:
                 logger.info(f"✓ 连接到现有集合: {self.collection_name}")
             except Exception:
                 # 集合不存在，创建新集合
+                # hnsw:num_threads=1: 规避 chroma-hnswlib 0.7.6 在 Python 3.13 上的段错误
+                # 详见 https://github.com/chroma-core/chroma/issues/6895
                 self.collection = self.client.create_collection(
                     name=self.collection_name,
-                    metadata={"hnsw:space": "cosine"}  # 使用余弦相似度
+                    metadata={
+                        "hnsw:space": "cosine",  # 使用余弦相似度
+                        "hnsw:num_threads": 1,   # 单线程，避免多线程 HNSW 段错误
+                    }
                 )
                 logger.info(f"✓ 创建新集合: {self.collection_name}")
             
