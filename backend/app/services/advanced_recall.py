@@ -505,7 +505,7 @@ def _format_temporal_context(
 # P0-3: 知识更新检测
 # ============================================================
 
-# 需要检测知识更新的实体类型
+# 需要检测知识更新的实体类型（W2: 4 类扩展到 10 类）
 _UPDATABLE_PATTERNS = [
     # 住所
     (r"(?:live|lived|move|moved|relocate|relocated)\s+(?:in|to|at)\s+([\w\s]+)", "location"),
@@ -516,7 +516,25 @@ _UPDATABLE_PATTERNS = [
     # 职位
     (r"(?:promote|promoted|become|became)\s+(?:to\s+)?([\w\s]+(?:engineer|manager|director))", "title"),
     (r"(?:升职|晋升|成为)\s*([\w\u4e00-\u9fff]+)", "title"),
-    # 状态
+    # 日期/时间安排（W2 新增）："会议改到下周五" / "meeting moved to Friday"
+    (r"(?:meeting|deadline|appointment)\s+(?:is|on|moved to|rescheduled to)\s+([\w\s]+?(?:day|week|month)[\w\s]*)", "date"),
+    (r"(?:会议|截止|约定|安排)(?:改到|推迟到|提前到|定在|定于|在)\s*([\w\u4e00-\u9fff]+?(?:周|星期|号|日|月|年|点|天)[\w\u4e00-\u9fff]*)", "date"),
+    # 优先级（W2 新增）："优先做 A" / "priority is B"
+    (r"(?:priority|prioritize|focus on)\s+(?:is\s+|on\s+)?([\w\s]+)", "priority"),
+    (r"(?:优先做|优先处理|优先级是|首要任务是|重点是)\s*([\w\u4e00-\u9fff]+)", "priority"),
+    # 数量/数值（W2 新增）："预算 50 万" / "budget is 500k"
+    (r"(?:budget|cost|amount)\s+(?:is\s+|of\s+)?([\d,.]+\s*(?:k|m|w|万|千|百万|亿)?[\w]*)", "quantity"),
+    (r"(?:预算|费用|金额|成本)(?:是|为|调整到|调到|改为)?\s*([\d,.]+\s*(?:万|千|百万|亿|元|k|m)?)", "quantity"),
+    # 偏好（W2 新增）："喜欢 React" → "喜欢 Vue"
+    (r"(?:prefer|like|favorite)\s+(?:is\s+|using\s+)?([\w\s+#.]+)", "preference"),
+    (r"(?:喜欢|偏好|喜爱|爱用|惯用)\s*([\w\u4e00-\u9fff+#.]+)", "preference"),
+    # 关系（W2 新增）："和 A 合作" → "和 B 合作"
+    (r"(?:collaborate|partner|cooperate)\s+with\s+([\w\s]+)", "relationship"),
+    (r"(?:和|与|跟)\s*([\w\u4e00-\u9fff]+?)\s*(?:合作|对接|搭档|结伴)", "relationship"),
+    # 状态机转移（W2 新增）："项目进行中" → "项目已完成"
+    (r"(?:project|task|work)\s+(?:is|status[:\s]+)\s*(in progress|completed|done|pending|blocked|cancelled|paused)", "state"),
+    (r"(?:项目|任务|工作)(?:状态)?(?:是|为|已|进入)?\s*(进行中|已完成|完成|待开始|已取消|暂停|阻塞|延期)", "state"),
+    # 状态（原有通用 change/switch，放最后避免抢先匹配新类型）
     (r"(?:change|changed|switch|switched)\s+(?:to|from)\s+([\w\s]+)", "status"),
     (r"(?:改为|切换到|换成)\s*([\w\u4e00-\u9fff]+)", "status"),
 ]

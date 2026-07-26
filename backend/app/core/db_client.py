@@ -207,11 +207,20 @@ class SQLiteClient:
                 ("last_recalled_at", "TIMESTAMP"),
                 ("cold_at", "TIMESTAMP"),
                 ("vector_synced", "INTEGER DEFAULT 0"),
+                ("valid_from", "TIMESTAMP"),
+                ("valid_until", "TIMESTAMP"),
+                ("workspace_id", "INTEGER"),
             ]:
                 try:
                     cursor.execute(f"ALTER TABLE memory_fragments ADD COLUMN {col} {col_type}")
                 except Exception:
                     pass
+
+            # workspace 隔离：memory_tables 补 workspace_id 列（嵌入模式全新库也需要）
+            try:
+                cursor.execute("ALTER TABLE memory_tables ADD COLUMN workspace_id INTEGER")
+            except Exception:
+                pass
 
             # ============================================================
             # 向量写入 Outbox 表（跨存储事务一致性）

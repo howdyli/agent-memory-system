@@ -10,6 +10,9 @@ jobs:
   l1-benchmarks:
     name: L1 内部质量基准
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     defaults:
       run:
         working-directory: backend
@@ -98,6 +101,59 @@ jobs:
               fh.write(report)
           print(report)
           "
+
+      - name: Baseline regression check
+        working-directory: backend
+        run: |
+          # 合并各套件结果后对比最新基线（L1 降幅 >5% 红灯退出非零）
+          python -c "
+          import json
+          merged = {'results': []}
+          for f in ['results/l1_recall_quality.json', 'results/l1_multi_tenancy.json']:
+              try:
+                  with open(f) as fh:
+                      merged['results'].extend(json.load(fh).get('results', []))
+              except FileNotFoundError:
+                  pass
+          with open('results/l1_merged.json', 'w') as fh:
+              json.dump(merged, fh)
+          "
+          python -m app.benchmarks.runner baseline compare \
+            --input results/l1_merged.json \
+            --output results/l1_regression.md
+
+      - name: Comment regression report on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'backend/results/l1_regression.md';
+            if (!fs.existsSync(path)) return;
+            const body = fs.readFileSync(path, 'utf8');
+            const marker = '<!-- benchmark-regression-report -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+            const content = marker + '\n' + body;
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: content,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: content,
+              });
+            }
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4

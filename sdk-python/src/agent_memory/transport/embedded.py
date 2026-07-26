@@ -161,6 +161,32 @@ class EmbeddedTransport(Transport):
             )
         if path == "/memory/tables" and method == "GET":
             return tbl_svc.list_tables(user_id=uid, workspace_id=wid)
+        if path.startswith("/memory/tables/") and path.endswith("/records"):
+            table_name = path.split("/")[3]
+            if method == "POST":
+                return tbl_svc.add_record(
+                    user_id=uid, table_name=table_name,
+                    record=json["record"], workspace_id=wid,
+                )
+            if method == "GET":
+                return tbl_svc.query_records(user_id=uid, table_name=table_name, workspace_id=wid)
+            if method == "PUT":
+                return tbl_svc.update_record(
+                    user_id=uid, table_name=table_name,
+                    record_id=int(p["record_id"]),
+                    updates=json["updates"], workspace_id=wid,
+                )
+            if method == "DELETE":
+                return tbl_svc.delete_record(
+                    user_id=uid, table_name=table_name,
+                    record_id=int(p["record_id"]), workspace_id=wid,
+                )
+        if path.startswith("/memory/tables/") and path.endswith("/info") and method == "GET":
+            table_name = path.split("/")[3]
+            return tbl_svc.get_table_info(user_id=uid, table_name=table_name, workspace_id=wid)
+        if path.startswith("/memory/tables/") and method == "DELETE":
+            table_name = path.split("/")[-1]
+            return tbl_svc.drop_table(user_id=uid, table_name=table_name, workspace_id=wid)
 
         # ---- Extraction ----
         if path == "/memory/extraction/context" and method == "GET":

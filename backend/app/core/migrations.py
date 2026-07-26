@@ -70,6 +70,35 @@ MIGRATIONS: List[Tuple[int, str, List[str]]] = [
     (6, "ensure workspace_id on memory_fragments", [
         "ALTER TABLE memory_fragments ADD COLUMN workspace_id INTEGER",
     ]),
+
+    # v7: W2 时序有效性字段（valid_from / valid_until）
+    (7, "add temporal validity fields to memory_fragments", [
+        "ALTER TABLE memory_fragments ADD COLUMN valid_from TIMESTAMP",
+        "ALTER TABLE memory_fragments ADD COLUMN valid_until TIMESTAMP",
+        # 存量数据回填：valid_from 默认 = created_at
+        "UPDATE memory_fragments SET valid_from = created_at WHERE valid_from IS NULL",
+    ]),
+
+    # v8: W2 冲突待处理表（conflict_pending 人工审核）
+    (8, "create memory_conflicts table", [
+        """CREATE TABLE IF NOT EXISTS memory_conflicts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            workspace_id INTEGER,
+            old_fragment_id INTEGER NOT NULL,
+            new_fragment_id INTEGER,
+            entity_type TEXT,
+            detection_method TEXT DEFAULT 'pattern',
+            suggested_strategy TEXT DEFAULT 'latest_wins',
+            status TEXT DEFAULT 'conflict_pending',
+            resolution TEXT,
+            resolution_reason TEXT,
+            resolved_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_conflicts_user_status ON memory_conflicts(user_id, status)",
+    ]),
 ]
 
 

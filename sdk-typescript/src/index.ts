@@ -3,6 +3,9 @@
  */
 
 export { MemoryClient } from './client.js';
+export type { ClientSettings } from './client.js';
+export { quickstart, PRESETS, DEFAULT_BASE_URL } from './quickstart.js';
+export type { PresetName, PresetConfig, QuickstartOptions } from './quickstart.js';
 export {
   VariablesAPI,
   FragmentsAPI,

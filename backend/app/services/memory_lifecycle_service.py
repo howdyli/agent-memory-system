@@ -1837,16 +1837,33 @@ _scheduler_running = False
 
 
 async def _scheduled_maintenance_loop():
-    """后台定时维护循环，每 6 小时执行一次归档+清理+去重扫描"""
+    """后台定时维护循环：
+    - 每 1 小时：时序失效扫描（W2 新增，标记 expired）
+    - 每 6 小时：完整维护（归档+清理+去重+智能遗忘）
+    """
     global _scheduler_running
-    logger.info("🔄 生命周期调度器已启动，每 6 小时执行一次维护")
+    logger.info("🔄 生命周期调度器已启动：每小时时序扫描，每 6 小时完整维护")
+    tick = 0
     while _scheduler_running:
         try:
-            await asyncio.sleep(6 * 60 * 60)  # 6 hours
+            await asyncio.sleep(60 * 60)  # 1 hour
             if not _scheduler_running:
                 break
-            logger.info("🔄 开始执行定时维护...")
-            run_maintenance_now()
+            tick += 1
+
+            # 每小时：时序失效扫描
+            try:
+                from app.services.temporal_inference_service import scan_and_expire
+                expire_result = scan_and_expire()
+                if expire_result.get("expired_count", 0) > 0:
+                    logger.info(f"🔄 时序扫描: 标记 {expire_result['expired_count']} 条 expired")
+            except Exception as e:
+                logger.error(f"✗ 时序失效扫描异常: {e}")
+
+            # 每 6 小时：完整维护
+            if tick % 6 == 0:
+                logger.info("🔄 开始执行定时维护...")
+                run_maintenance_now()
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -1928,6 +1945,16 @@ def run_maintenance_now() -> Dict[str, Any]:
     except Exception as e:
         results["smart_forgetting"] = {"success": False, "error": str(e)}
         logger.error(f"✗ 智能遗忘失败: {e}")
+
+    # 5. 时序失效扫描（W2：标记已过 valid_until 的记忆为 expired）
+    try:
+        from app.services.temporal_inference_service import scan_and_expire
+        expire_result = scan_and_expire()
+        results["temporal_expiry"] = expire_result
+        logger.info(f"时序失效扫描: 标记 {expire_result.get('expired_count', 0)} 条 expired")
+    except Exception as e:
+        results["temporal_expiry"] = {"success": False, "error": str(e)}
+        logger.error(f"✗ 时序失效扫描失败: {e}")
 
     results["success"] = True
     results["timestamp"] = datetime.now().isoformat()

@@ -314,6 +314,9 @@ COMPAT_ALTERS: List[str] = [
     "ALTER TABLE memory_fragments ADD COLUMN workspace_id INTEGER",
     "ALTER TABLE graph_entities ADD COLUMN workspace_id INTEGER",
     "ALTER TABLE graph_relationships ADD COLUMN workspace_id INTEGER",
+    # W2 时序有效性字段
+    "ALTER TABLE memory_fragments ADD COLUMN valid_from TIMESTAMP",
+    "ALTER TABLE memory_fragments ADD COLUMN valid_until TIMESTAMP",
 ]
 
 # ============================================================

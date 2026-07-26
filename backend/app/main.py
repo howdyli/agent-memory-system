@@ -35,7 +35,7 @@ from app.api import (
     memory_fragments, auto_recall, long_term_memory, system_integration,
     agent, memory_lifecycle, graph_memory, hybrid_search,
     memory_observability, sessions, workspace, webhooks, events,
-    business_metrics, memory_evolution, smart_forgetting,
+    business_metrics, memory_evolution, smart_forgetting, playground,
 )
 
 
@@ -384,6 +384,7 @@ app.include_router(events.router, prefix="/api/v1/events", tags=["events"])
 app.include_router(business_metrics.router, prefix="/api/v1", tags=["system"])
 app.include_router(memory_evolution.router, prefix="/api/v1", tags=["memory-evolution"])
 app.include_router(smart_forgetting.router, prefix="/api/v1", tags=["smart-forgetting"])
+app.include_router(playground.router, prefix="/api/v1/playground", tags=["playground"])
 
 
 # ------------------------------------------------------------------

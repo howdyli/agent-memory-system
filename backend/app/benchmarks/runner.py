@@ -555,45 +555,56 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except ImportError:
             logger.warning("report 模块未就绪，跳过报告生成")
 
-    # 更新基线（L3 性能套件）
+    # 结果序列化（供基线管理复用）
+    result_dicts = [
+        {
+            "suite_name": r.suite_name,
+            "level": r.level,
+            "metrics": r.metrics,
+            "targets": r.targets,
+        }
+        for r in results_list
+    ]
+
+    # 更新基线（全层级：results/baselines/{suite}/v{N}.json；L3 同时维护旧版 baseline.json）
     if getattr(args, "update_baseline", False):
         try:
-            from app.benchmarks.performance.regression import update_baseline
-            saved = {
-                "results": [
-                    {
-                        "suite_name": r.suite_name,
-                        "metrics": r.metrics,
-                        "targets": r.targets,
-                    }
-                    for r in results_list
-                ]
-            }
-            update_baseline(saved)
-            logger.info("性能基线已更新")
+            from app.benchmarks.baseline_manager import save_baseline
+            for item in result_dicts:
+                if item["suite_name"] and item.get("metrics"):
+                    save_baseline(item)
+            logger.info("基线已更新（results/baselines/）")
         except Exception as e:
             logger.warning(f"更新基线失败: {e}")
+        try:
+            from app.benchmarks.performance.regression import update_baseline
+            update_baseline({"results": result_dicts})
+        except Exception as e:
+            logger.warning(f"更新 L3 旧版基线失败: {e}")
 
-    # 回归检测（L3 性能套件，未更新基线时自动对比）
+    # 回归检测（全层级，未更新基线时自动对比）
     if getattr(args, "check_regression", False) and not getattr(args, "update_baseline", False):
         try:
-            from app.benchmarks.performance.regression import (
-                check_regression, format_regression_report,
+            from app.benchmarks.baseline_manager import (
+                compare_results, generate_comparison_report,
             )
-            saved = {
-                "results": [
-                    {
-                        "suite_name": r.suite_name,
-                        "metrics": r.metrics,
-                        "targets": r.targets,
-                    }
-                    for r in results_list
-                ]
-            }
-            report = check_regression(saved)
-            print("\n" + format_regression_report(report))
-            if report.has_regression:
-                logger.warning("⚠ 检测到性能回归，请检查上方报告")
+            cmp_report = compare_results(result_dicts)
+            md = generate_comparison_report(cmp_report)
+            print("\n" + md)
+            # 回归报告落盘到 results/
+            regression_report_path = getattr(args, "regression_report", "") or ""
+            if not regression_report_path and args.output:
+                regression_report_path = args.output.replace(".json", "_regression.md")
+            if regression_report_path:
+                os.makedirs(os.path.dirname(regression_report_path) or ".", exist_ok=True)
+                with open(regression_report_path, "w", encoding="utf-8") as f:
+                    f.write(md)
+                logger.info(f"回归报告已保存: {regression_report_path}")
+            if cmp_report.has_failure:
+                logger.warning("🔴 检测到质量回归（红灯），CI 应失败")
+                exit_code = 1
+            elif cmp_report.has_warning:
+                logger.warning("🟡 检测到性能劣化（黄灯，不阻塞）")
         except Exception as e:
             logger.warning(f"回归检测失败: {e}")
 
@@ -690,6 +701,39 @@ def _cmd_regression(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_baseline(args: argparse.Namespace) -> int:
+    """执行 `baseline` 子命令：基于结果文件对比/更新目录式基线。"""
+    if not os.path.exists(args.input):
+        print(f"结果文件不存在: {args.input}")
+        return 1
+
+    with open(args.input, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    result_dicts = data.get("results", [])
+
+    from app.benchmarks.baseline_manager import (
+        save_baseline, compare_results, generate_comparison_report,
+    )
+
+    if args.action == "update":
+        for item in result_dicts:
+            if item.get("suite_name") and item.get("metrics"):
+                path = save_baseline(item)
+                print(f"基线已保存: {path}")
+        return 0
+
+    # compare
+    report = compare_results(result_dicts)
+    md = generate_comparison_report(report)
+    print("\n" + md)
+    if args.output:
+        os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(md)
+        print(f"回归报告已保存: {args.output}")
+    return 1 if report.has_failure else 0
+
+
 def _save_suite_results(results_list: List["BenchmarkResult"], output_path: str) -> None:
     """保存套件结果列表到 JSON。"""
     from datetime import datetime, timezone
@@ -765,8 +809,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     run_parser.add_argument("--duration", type=int, default=0, help="负载测试持续秒数")
     run_parser.add_argument("--workspaces", type=str, default="", help="负载测试并发 workspace 数（逗号分隔）")
     run_parser.add_argument("--scales", type=str, default="", help="存储增长套件规模列表（逗号分隔）")
-    run_parser.add_argument("--update-baseline", action="store_true", help="运行后更新性能基线 baseline.json")
-    run_parser.add_argument("--check-regression", action="store_true", help="运行后对比基线检测性能回归")
+    run_parser.add_argument("--update-baseline", action="store_true", help="运行后将结果保存为新基线版本（results/baselines/{suite}/v{N}.json）")
+    run_parser.add_argument("--check-regression", action="store_true", help="运行后对比最新基线检测回归（L1>5% 红灯 / L2>2pp 红灯 / L3>20% 黄灯）")
+    run_parser.add_argument("--regression-report", type=str, default="", help="回归报告输出路径（默认 <output>_regression.md）")
     run_parser.set_defaults(func=_cmd_run)
 
     # list 子命令
@@ -786,6 +831,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     reg_parser.add_argument("--baseline", type=str, default="", help="基线文件路径（默认 baseline.json）")
     reg_parser.add_argument("--output", type=str, default="", help="回归报告输出路径")
     reg_parser.set_defaults(func=_cmd_regression)
+
+    # baseline 子命令：基于结果文件对比/更新目录式基线
+    base_parser = subparsers.add_parser("baseline", help="目录式基线管理（compare/update）")
+    base_parser.add_argument("action", choices=["compare", "update"], help="compare=对比最新基线, update=保存为新基线版本")
+    base_parser.add_argument("--input", type=str, required=True, help="结果 JSON 文件路径（run --output 产物）")
+    base_parser.add_argument("--output", type=str, default="", help="回归报告输出路径（仅 compare）")
+    base_parser.set_defaults(func=_cmd_baseline)
 
     args = parser.parse_args(argv)
 

@@ -412,6 +412,19 @@ export const hybridSearchApi = {
   rebuildIndex: () => apiClient.post('/memory/hybrid-search/rebuild-index'),
 };
 
+// ==================== Playground API ====================
+export const playgroundApi = {
+  simulateInjection: (data: { content: string; fragment_type?: string; importance?: number }) =>
+    apiClient.post('/playground/simulate-injection', data),
+  simulateRecall: (data: { query: string; top_k?: number; budget_tokens?: number }) =>
+    apiClient.post('/playground/simulate-recall', data),
+  simulateDecay: (data: { fragment_type?: string; importance?: number; days?: number; half_life_days?: number }) =>
+    apiClient.post('/playground/simulate-decay', data),
+  evolutionChain: (entityType: string, entityKey?: string) =>
+    apiClient.get('/memory/evolution/chain', { params: { entity_type: entityType, entity_key: entityKey } }),
+  evolutionStatistics: () => apiClient.get('/memory/evolution/statistics'),
+};
+
 // ==================== Sessions API ====================
 export interface Session {
   id: number;

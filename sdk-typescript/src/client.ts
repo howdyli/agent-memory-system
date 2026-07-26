@@ -331,8 +331,24 @@ export class WebhooksAPI {
 
 // ==================== MemoryClient ====================
 
+/** 可通过 configure() 调整的高级参数（W3-F3.2） */
+export interface ClientSettings {
+  recallTopK: number;
+  semanticThreshold: number;
+  preferenceHalfLifeDays: number;
+  planHalfLifeDays: number;
+}
+
+const DEFAULT_SETTINGS: ClientSettings = {
+  recallTopK: 5,
+  semanticThreshold: 0.3,
+  preferenceHalfLifeDays: 1,
+  planHalfLifeDays: 90,
+};
+
 export class MemoryClient {
   private transport: Transport;
+  private _settings: ClientSettings = { ...DEFAULT_SETTINGS };
 
   public readonly variables: VariablesAPI;
   public readonly fragments: FragmentsAPI;
@@ -364,15 +380,28 @@ export class MemoryClient {
     this.webhooks = new WebhooksAPI(this.transport);
   }
 
+  // Configuration (W3-F3.2)
+
+  /** 覆盖高级参数，返回 this 支持链式调用 */
+  configure(settings: Partial<ClientSettings>): this {
+    this._settings = { ...this._settings, ...settings };
+    return this;
+  }
+
+  /** 当前生效的高级参数（副本） */
+  get settings(): ClientSettings {
+    return { ...this._settings };
+  }
+
   // High-level convenience methods
 
   async remember(key: string, value: unknown, ttl?: number): Promise<boolean> {
     return this.variables.set(key, value, ttl);
   }
 
-  async recallContext(query: string, topK = 5): Promise<string> {
+  async recallContext(query: string, topK?: number): Promise<string> {
     try {
-      const result = await this.recall.auto(query);
+      const result = await this.recall.auto(query, topK ?? this._settings.recallTopK);
       return result?.context ?? '';
     } catch {
       return '';
@@ -383,7 +412,11 @@ export class MemoryClient {
     return this.variables.delete(key);
   }
 
-  async search(query: string, topK = 5): Promise<MemoryFragment[]> {
-    return this.fragments.search(query, topK);
+  async search(query: string, topK?: number, threshold?: number): Promise<MemoryFragment[]> {
+    return this.fragments.search(
+      query,
+      topK ?? this._settings.recallTopK,
+      threshold ?? this._settings.semanticThreshold,
+    );
   }
 }

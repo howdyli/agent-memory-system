@@ -276,10 +276,28 @@ async def list_fragments_api(
     fragment_type: Optional[str] = None,
     limit: Optional[int] = 100,
     offset: Optional[int] = 0,
+    valid_at: Optional[str] = None,
     principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
 ):
-    """列出记忆片段"""
+    """列出记忆片段（可选 valid_at=ISO时间 查询某时刻有效的记忆，W2）"""
     try:
+        # W2-F2.2: 时序有效性查询
+        if valid_at:
+            from datetime import datetime
+            from app.services.temporal_inference_service import get_valid_fragments_at
+            try:
+                at_dt = datetime.fromisoformat(valid_at)
+            except ValueError:
+                raise ValidationError(f"无效的 valid_at 时间格式: {valid_at}（需 ISO 8601）")
+            result = get_valid_fragments_at(
+                user_id=principal.user_id,
+                valid_at=at_dt,
+                limit=limit or 100,
+            )
+            if result["success"]:
+                return result
+            raise ValidationError(result.get("error", "Failed to query valid fragments"))
+
         result = list_fragments(
             user_id=principal.user_id,
             fragment_type=fragment_type,

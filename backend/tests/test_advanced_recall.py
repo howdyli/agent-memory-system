@@ -245,8 +245,14 @@ class TestUpdatableEntityExtraction:
 
     def test_extract_no_entity(self):
         """无可更新实体时返回 None。"""
-        entity = _extract_updatable_entity("I like Python programming")
+        entity = _extract_updatable_entity("The weather is nice")
         assert entity is None
+
+    def test_extract_preference(self):
+        """偏好提取（W2-F2.1 新增实体类型）。"""
+        entity = _extract_updatable_entity("I like Python programming")
+        assert entity is not None
+        assert entity[0] == "preference"
 
     def test_extract_title(self):
         """职位提取。"""
@@ -313,7 +319,7 @@ class TestKnowledgeUpdateDetection:
         """非可更新内容不应触发更新检测。"""
         result = detect_knowledge_update(
             user_id=999,
-            new_content="I like Python programming",
+            new_content="The weather is nice today",
         )
         assert result["success"] is True
         assert result["updated"] is False

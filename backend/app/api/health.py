@@ -77,3 +77,45 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "agent-memory-backend",
     }
+
+
+@router.get("/health/compression")
+async def compression_health():
+    """
+    压缩引擎健康检查。
+
+    返回断路器状态、成功/失败统计、fallback 使用情况。
+    """
+    from app.core.circuit_breaker import CircuitBreaker
+
+    # 获取压缩引擎专用断路器状态
+    try:
+        from app.services.context_compressor import _compression_circuit_breaker
+        breaker = _compression_circuit_breaker
+        snapshot = breaker.snapshot()
+        breaker_status = {
+            "state": snapshot.get("state", "unknown"),
+            "failure_count": snapshot.get("failure_count", 0),
+            "success_count": snapshot.get("success_count", 0),
+            "failure_threshold": snapshot.get("failure_threshold", 3),
+            "recovery_timeout": snapshot.get("recovery_timeout", 60.0),
+            "last_failure_time": snapshot.get("last_failure_time"),
+        }
+    except Exception as e:
+        breaker_status = {"error": str(e)}
+
+    # 判断健康状态
+    is_healthy = breaker_status.get("state") == "closed"
+    degraded = breaker_status.get("state") == "half_open"
+
+    status_label = "healthy"
+    if degraded:
+        status_label = "degraded"
+    elif not is_healthy:
+        status_label = "unhealthy"
+
+    return {
+        "status": status_label,
+        "circuit_breaker": breaker_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
