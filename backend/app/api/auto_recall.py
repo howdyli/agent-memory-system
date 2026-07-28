@@ -61,7 +61,10 @@ async def auto_recall_api(
 ):
     """自动记忆召回（一键召回相关记忆并注入上下文）"""
     try:
-        result = auto_recall(principal.user_id, request.query, top_k=request.top_k)
+        result = auto_recall(
+            principal.user_id, request.query,
+            workspace_id=principal.workspace_id, top_k=request.top_k,
+        )
         if result["success"]:
             return result
         else:

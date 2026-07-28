@@ -112,6 +112,7 @@ class RecallEngine:
         update_lifecycle: Optional[bool] = None,
         record_traces: bool = True,
         exclude_ids: Optional[set] = None,
+        workspace_id: Optional[int] = None,
     ) -> RecallResult:
         """
         统一语义召回接口。
@@ -134,6 +135,7 @@ class RecallEngine:
             update_lifecycle: 是否更新生命周期（None 使用配置）
             record_traces: 是否记录观测性埋点
             exclude_ids: 已选记忆 ID 集合（跨层去重，跳过这些 ID）
+            workspace_id: 工作区 ID（None 回退到 workspace_id IS NULL 过滤）
 
         Returns:
             RecallResult
@@ -153,6 +155,7 @@ class RecallEngine:
                     gamma=self.config.get("hybrid_search_gamma"),
                     delta=self.config.get("hybrid_search_delta"),
                     top_k=self.config.get("hybrid_search_top_k", _top_k),
+                    workspace_id=workspace_id,
                 )
             else:
                 search_result = search_fragments_by_semantic(
@@ -160,6 +163,7 @@ class RecallEngine:
                     query=query,
                     top_k=_top_k,
                     threshold=0.2,
+                    workspace_id=workspace_id,
                 )
 
             all_memories = search_result.get("fragments", [])
@@ -232,6 +236,7 @@ class RecallEngine:
         top_k: Optional[int] = None,
         threshold: Optional[float] = None,
         exclude_ids: Optional[set] = None,
+        workspace_id: Optional[int] = None,
     ) -> RecallResult:
         """
         实体图谱扩展召回（Level 3）。
@@ -245,6 +250,7 @@ class RecallEngine:
             top_k: 返回数量
             threshold: 相关度阈值
             exclude_ids: 已选记忆 ID 集合（跨层去重，跳过这些 ID）
+            workspace_id: workspace 过滤（图谱数据按 workspace 隔离）
 
         Returns:
             RecallResult
@@ -267,6 +273,7 @@ class RecallEngine:
                 entities=entities,
                 top_k=_top_k,
                 threshold=_threshold,
+                workspace_id=workspace_id,
             )
 
             # 2.5 跨层去重过滤

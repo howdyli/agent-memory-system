@@ -67,6 +67,7 @@ CORE_DDL: List[str] = [
         embedding_id TEXT,
         ttl INTEGER,
         importance_score REAL DEFAULT 0.5,
+        extra_data TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id)
@@ -317,6 +318,8 @@ COMPAT_ALTERS: List[str] = [
     # W2 时序有效性字段
     "ALTER TABLE memory_fragments ADD COLUMN valid_from TIMESTAMP",
     "ALTER TABLE memory_fragments ADD COLUMN valid_until TIMESTAMP",
+    # 附加元数据 JSON（session_id/routing_key/source 等）
+    "ALTER TABLE memory_fragments ADD COLUMN extra_data TEXT",
 ]
 
 # ============================================================

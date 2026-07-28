@@ -253,15 +253,17 @@ def _simulate_recall(
         top_k=top_k,
         update_lifecycle=False,
         record_traces=False,
+        workspace_id=workspace_id,
     )
     l2_ids = {m.get("id") for m in l2.memories if m.get("id")}
 
-    # L3: 实体图谱扩展召回（跨层去重）
+    # L3: 实体图谱扩展召回（跨层去重，图谱数据按 workspace 隔离）
     l3 = engine.recall_with_entities(
         user_id=user_id,
         query=query,
         budget_tokens=max(budget_tokens // 4, 200),
         exclude_ids=l2_ids,
+        workspace_id=workspace_id,
     )
 
     total_used = l2.token_used + estimate_tokens(l3.context_text)

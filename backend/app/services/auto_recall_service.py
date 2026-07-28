@@ -634,6 +634,7 @@ def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None, to
             top_k=effective_top_k,
             update_lifecycle=True,
             record_traces=True,
+            workspace_id=workspace_id,
         )
 
         top_memories = result.memories

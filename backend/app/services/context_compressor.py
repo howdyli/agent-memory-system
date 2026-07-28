@@ -1098,6 +1098,7 @@ class EntityGraphTraverser:
         entities: List[str],
         top_k: int = 5,
         threshold: float = 0.3,
+        workspace_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         基于实体搜索关联记忆（模拟图谱遍历）。
@@ -1110,6 +1111,7 @@ class EntityGraphTraverser:
             entities: 实体名称列表
             top_k: 每实体召回数量
             threshold: 相似度阈值
+            workspace_id: workspace 过滤（图谱数据按 workspace 隔离，不传则查 NULL 分区）
 
         Returns:
             关联记忆列表
@@ -1119,7 +1121,7 @@ class EntityGraphTraverser:
 
         # 1. 优先尝试 GraphMemory 结构化数据
         graph_results = EntityGraphTraverser._use_graph_memory(
-            user_id=user_id, entities=entities, top_k=top_k
+            user_id=user_id, entities=entities, top_k=top_k, workspace_id=workspace_id
         )
         if graph_results:
             return graph_results
@@ -1155,6 +1157,7 @@ class EntityGraphTraverser:
         user_id: int,
         entities: List[str],
         top_k: int = 5,
+        workspace_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         使用 GraphMemory 模块的结构化图数据查询关联记忆。
@@ -1190,6 +1193,7 @@ class EntityGraphTraverser:
                         entity_name=entity,
                         entity_type="person",
                         depth=1,
+                        workspace_id=workspace_id,
                     )
                     if neighbors.get("success"):
                         for nb in neighbors.get("neighbors", []):
@@ -1211,7 +1215,7 @@ class EntityGraphTraverser:
 
                     # 也搜索实体本身
                     search_result = search_entities(
-                        user_id=user_id, query=entity, limit=1
+                        user_id=user_id, query=entity, limit=1, workspace_id=workspace_id
                     )
                     if search_result.get("success") and search_result.get("entities"):
                         for e in search_result["entities"]:

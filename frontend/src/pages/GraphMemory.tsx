@@ -102,10 +102,12 @@ export default function GraphMemoryPage() {
     setLoad('graph', false);
   };
 
-  const handleNeighbors = useCallback(async () => {
-    if (!neighborEntityId.trim()) return;
+  const handleNeighbors = useCallback(async (id?: string | number) => {
+    // 支持直接传 ID（避免 setState 后立即调用时闭包内仍是旧值），并统一转字符串防止数字 ID 调 .trim() 报错
+    const target = String(id ?? neighborEntityId ?? '').trim();
+    if (!target) return;
     setLoad('neighbors', true);
-    try { const res = await graphApi.getNeighbors(neighborEntityId.trim()); setNeighbors(res.data?.neighbors || res.data || []); } catch { message.error('获取邻居失败'); }
+    try { const res = await graphApi.getNeighbors(target); setNeighbors(res.data?.neighbors || res.data || []); } catch { message.error('获取邻居失败'); }
     setLoad('neighbors', false);
   }, [neighborEntityId]);
 
@@ -284,7 +286,7 @@ export default function GraphMemoryPage() {
                     title: '操作', width: 120, render: (_: any, r: any) => (
                       <Space>
                         <Button size="small" icon={<EyeOutlined />} onClick={() => {
-                          setNeighborEntityId(r.id || r.entity_id); handleNeighbors();
+                          const id = String(r.id || r.entity_id); setNeighborEntityId(id); handleNeighbors(id);
                         }}>邻居</Button>
                         <Button size="small" icon={<InfoCircleOutlined />} onClick={() => {
                           setSelectedEntity(r); setDrawerOpen(true);
@@ -310,11 +312,11 @@ export default function GraphMemoryPage() {
               }>
               <Table dataSource={relationships} rowKey={(r) => r.id || r.relationship_id || Math.random()} size="small" loading={relsLoading}
                 columns={[
-                  { title: '源实体', ellipsis: true, render: (_: any, r: any) => r.source_entity_name || r.source_entity_id || '-' },
+                  { title: '源实体', ellipsis: true, render: (_: any, r: any) => r.source_name || r.source_entity_name || r.source_entity_id || '-' },
                   { title: '关系', dataIndex: 'relation_type', width: 100, render: (t: string) => <Tag color="purple">{t}</Tag> },
-                  { title: '目标实体', ellipsis: true, render: (_: any, r: any) => r.target_entity_name || r.target_entity_id || '-' },
+                  { title: '目标实体', ellipsis: true, render: (_: any, r: any) => r.target_name || r.target_entity_name || r.target_entity_id || '-' },
                   { title: '权重', width: 70, render: (_: any, r: any) => { const v = r.weight ?? r.confidence; return v != null ? Number(v).toFixed(2) : '-'; } },
-                  { title: '状态', dataIndex: 'status', width: 70, render: (s: string) => <Tag color={s === 'active' ? 'green' : 'red'}>{s || 'active'}</Tag> },
+                  { title: '状态', width: 70, render: (_: any, r: any) => { const active = r.status ? r.status === 'active' : !!(r.is_active ?? 1); return <Tag color={active ? 'green' : 'red'}>{active ? 'active' : 'inactive'}</Tag>; } },
                   { title: '创建时间', dataIndex: 'created_at', width: 130, render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
                   {
                     title: '操作', width: 80, render: (_: any, r: any) => (
@@ -375,7 +377,7 @@ export default function GraphMemoryPage() {
                   extra={
                     <Space>
                       <Input value={neighborEntityId} onChange={e => setNeighborEntityId(e.target.value)} placeholder="实体 ID..." style={{ width: 200 }} />
-                      <Button type="primary" onClick={handleNeighbors} loading={loading.neighbors}>查询邻居</Button>
+                      <Button type="primary" onClick={() => handleNeighbors()} loading={loading.neighbors}>查询邻居</Button>
                     </Space>
                   }>
                   {neighbors.length > 0 ? (
@@ -445,8 +447,9 @@ export default function GraphMemoryPage() {
               <Button
                 block icon={<SearchOutlined />}
                 onClick={() => {
-                  setNeighborEntityId(String(selectedEntity.id || selectedEntity.entity_id));
-                  handleNeighbors();
+                  const nid = String(selectedEntity.id || selectedEntity.entity_id);
+                  setNeighborEntityId(nid);
+                  handleNeighbors(nid);
                   setDrawerOpen(false);
                 }}
               >

@@ -592,9 +592,9 @@ def create_fragment(user_id: int,
         
         # 插入记忆片段（vector_synced 默认为 0）
         fragment_id = db.execute('''
-            INSERT INTO memory_fragments (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at, vector_synced, agent_id, scope)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-        ''', (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at, agent_id, scope))
+            INSERT INTO memory_fragments (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at, extra_data, vector_synced, agent_id, scope)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        ''', (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at, meta_json, agent_id, scope))
 
         # 同一事务内写入 outbox（保证 SQLite 业务数据和 outbox 记录原子化）
         db.execute('''
@@ -663,6 +663,7 @@ def create_fragment(user_id: int,
             "ttl": ttl,
             "expires_at": expires_at,
             "importance_score": importance_score,
+            "metadata": metadata or {},
             "message": f"Fragment created successfully"
         }
         if contradiction_result and contradiction_result.get("superseded_ids"):
@@ -684,6 +685,15 @@ def create_fragment(user_id: int,
     finally:
         if '_span' in locals():
             _span.end()
+
+
+def _attach_metadata(fragment: Dict[str, Any]) -> None:
+    """把 extra_data JSON 列解析为 metadata 字段（解析失败/缺列时为空 dict）"""
+    raw = fragment.get("extra_data")
+    try:
+        fragment["metadata"] = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        fragment["metadata"] = {}
 
 
 def get_fragment(user_id: int, fragment_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
@@ -719,6 +729,7 @@ def get_fragment(user_id: int, fragment_id: int, workspace_id: Optional[int] = N
             }
         
         fragment = dict(rows[0])
+        _attach_metadata(fragment)
         
         # 检查是否过期
         if fragment.get("expires_at"):
@@ -946,6 +957,8 @@ def list_fragments(user_id: int,
             )
         
         fragments = [dict(row) for row in rows] if rows else []
+        for frag in fragments:
+            _attach_metadata(frag)
         total = count_rows[0]["total"] if count_rows else 0
         
         return {

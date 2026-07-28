@@ -121,6 +121,7 @@ class SQLiteClient:
                     embedding_id TEXT,  -- 关联向量数据库ID
                     ttl INTEGER,  -- 过期时间（秒）
                     importance_score REAL DEFAULT 0.5,
+                    extra_data TEXT,  -- JSON 附加元数据（session_id/routing_key/source 等）
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     expires_at TIMESTAMP,  -- 计算后的过期时间
                     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -213,6 +214,8 @@ class SQLiteClient:
                 # P1: 跨 Agent 共享记忆作用域（NULL agent_id = 用户级记忆）
                 ("agent_id", "INTEGER"),
                 ("scope", "TEXT DEFAULT 'shared'"),
+                # 附加元数据 JSON（session_id/routing_key/source 等）
+                ("extra_data", "TEXT"),
             ]:
                 try:
                     cursor.execute(f"ALTER TABLE memory_fragments ADD COLUMN {col} {col_type}")

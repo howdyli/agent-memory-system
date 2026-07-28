@@ -99,6 +99,11 @@ MIGRATIONS: List[Tuple[int, str, List[str]]] = [
         )""",
         "CREATE INDEX IF NOT EXISTS idx_conflicts_user_status ON memory_conflicts(user_id, status)",
     ]),
+
+    # v9: memory_fragments 附加元数据列（session_id/routing_key/source 等 JSON）
+    (9, "add extra_data to memory_fragments", [
+        "ALTER TABLE memory_fragments ADD COLUMN extra_data TEXT",
+    ]),
 ]
 
 
