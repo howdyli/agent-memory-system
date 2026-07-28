@@ -25,8 +25,8 @@ from app.benchmarks.base import BenchmarkResult, BenchmarkSuite, register_suite
 
 logger = logging.getLogger(__name__)
 
-# 默认数据目录
-_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "locomo")
+# 默认数据目录（app/benchmarks/data/locomo）
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "locomo")
 
 # 目标：准确率 ≥ 60%（参考 Letta 74.0% 为上限目标）
 TARGETS = {
@@ -64,6 +64,7 @@ class LoComoSuite(BenchmarkSuite):
         self.use_llm_judge: bool = self.config.get("use_llm_judge", True)
         self.use_llm_answer: bool = self.config.get("use_llm_answer", True)
         self.top_k: int = self.config.get("top_k", 10)
+        self.seed: int = self.config.get("seed", 42)
         self.instances: List[Dict[str, Any]] = []
 
     def setup(self) -> None:
@@ -75,9 +76,9 @@ class LoComoSuite(BenchmarkSuite):
 
         # 限量
         if self.limit > 0 and self.limit < len(self.instances):
-            # 分层抽样：按能力类别等比例抽样
-            self.instances = _stratified_sample(self.instances, self.limit)
-            logger.info(f"分层抽样限制为 {self.limit} 条实例")
+            # 分层抽样：按能力类别等比例抽样（固定 seed 可复现）
+            self.instances = _stratified_sample(self.instances, self.limit, self.seed)
+            logger.info(f"分层抽样限制为 {len(self.instances)} 条实例（seed={self.seed}）")
 
     def run(self) -> Dict[str, Any]:
         """运行 LoCoMo 基准测试。"""
@@ -164,11 +165,16 @@ class LoComoSuite(BenchmarkSuite):
 # 分层抽样
 # ============================================================
 
-def _stratified_sample(instances: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
-    """按能力类别等比例抽样。
+def _stratified_sample(
+    instances: List[Dict[str, Any]], limit: int, seed: int = 42
+) -> List[Dict[str, Any]]:
+    """按能力类别等比例随机抽样（固定 seed 可复现）。
 
-    确保每个能力类别在样本中都有代表。
+    确保每个能力类别在样本中都有代表；抽样后按 haystack_group
+    聚类排序，使 runner 能复用同组已摄入的对话记忆。
     """
+    import random
+
     from app.benchmarks.locomo_adapter import get_ability
 
     # 按能力分组
@@ -179,19 +185,23 @@ def _stratified_sample(instances: List[Dict[str, Any]], limit: int) -> List[Dict
             by_ability[ability] = []
         by_ability[ability].append(inst)
 
-    # 等比例分配
+    # 等比例分配 + 随机抽样
+    rng = random.Random(seed)
     total = len(instances)
     sampled: List[Dict[str, Any]] = []
-    for ability, items in by_ability.items():
+    for ability in sorted(by_ability):
+        items = by_ability[ability]
         # 该类别应抽样的数量
         n = max(1, round(limit * len(items) / total))
         n = min(n, len(items))
-        sampled.extend(items[:n])
+        sampled.extend(rng.sample(items, n))
 
-    # 若抽样后超过 limit，截断
+    # 若抽样后超过 limit，随机截断（保持各类均衡）
     if len(sampled) > limit:
-        sampled = sampled[:limit]
+        sampled = rng.sample(sampled, limit)
 
+    # 按对话组聚类排序，便于 runner 复用同组记忆
+    sampled.sort(key=lambda x: (x.get("haystack_group", ""), x.get("question_id", "")))
     return sampled
 
 

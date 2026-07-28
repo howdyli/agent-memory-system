@@ -210,6 +210,9 @@ class SQLiteClient:
                 ("valid_from", "TIMESTAMP"),
                 ("valid_until", "TIMESTAMP"),
                 ("workspace_id", "INTEGER"),
+                # P1: 跨 Agent 共享记忆作用域（NULL agent_id = 用户级记忆）
+                ("agent_id", "INTEGER"),
+                ("scope", "TEXT DEFAULT 'shared'"),
             ]:
                 try:
                     cursor.execute(f"ALTER TABLE memory_fragments ADD COLUMN {col} {col_type}")
@@ -246,6 +249,33 @@ class SQLiteClient:
                 ON vector_outbox(next_retry_at)
                 WHERE retry_count < 5
             ''')
+
+            # P1: vector_outbox 补充 agent 作用域列（兼容旧表）
+            for col, col_type in [
+                ("agent_id", "INTEGER"),
+                ("scope", "TEXT DEFAULT 'shared'"),
+            ]:
+                try:
+                    cursor.execute(f"ALTER TABLE vector_outbox ADD COLUMN {col} {col_type}")
+                except Exception:
+                    pass
+
+            # ============================================================
+            # P1: Agent 注册表（跨 Agent 共享记忆作用域）
+            # ============================================================
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS agents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    workspace_id INTEGER,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(workspace_id, name),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_id)')
 
             # ============================================================
             # Graph Memory 知识图谱表

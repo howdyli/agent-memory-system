@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     # ===== 向量数据库 =====
     VECTOR_BACKEND: str = "chroma"            # chroma | milvus | qdrant
     CHROMA_PERSIST_DIR: str = "./chromadb_data"
+
+    # ===== Embedding =====
+    EMBEDDING_PROVIDER: str = "default"        # default(Chroma 内置) | local(sentence-transformers)
+    EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"  # 仅 provider=local 生效
+    EMBEDDING_DEVICE: str = "cpu"              # cpu | cuda | mps
+    EMBEDDING_BATCH_SIZE: int = 32             # 文档嵌入批处理大小
     MILVUS_URI: str = "localhost:19530"
     QDRANT_URL: str = "http://localhost:6333"
 
@@ -79,6 +85,30 @@ class Settings(BaseSettings):
     # ===== 生命周期 =====
     COLD_MEMORY_THRESHOLD_DAYS: int = 30       # 冷记忆标记阈值（天）
     DEFAULT_HALF_LIFE_DAYS: int = 30           # 默认半衰期（天）
+
+    # ===== 睡眠期记忆巩固（P1 Sleep-time Compute）=====
+    CONSOLIDATION_ENABLED: bool = True             # 总开关；LLM 不可用/mock 时自动降级跳过
+    CONSOLIDATION_SIMILARITY_THRESHOLD: float = 0.80  # 聚簇相似度阈值
+    CONSOLIDATION_MIN_CLUSTER_SIZE: int = 2        # 最小簇大小（低于此值不巩固）
+    CONSOLIDATION_MAX_CLUSTERS_PER_RUN: int = 10   # 单轮最多处理簇数（LLM 成本上限）
+    CONSOLIDATION_MIN_AGE_HOURS: int = 24          # 只巩固创建超过 N 小时的记忆
+    CONSOLIDATION_MAX_CANDIDATES_PER_RUN: int = 200  # 单轮每用户最多扫描候选数（嵌入计算成本上限，最旧优先）
+
+    # ===== 多模态记忆（P2 R-13）=====
+    MULTIMODAL_ENABLED: bool = True               # 多模态记忆总开关
+    MULTIMODAL_UPLOAD_DIR: str = "data/uploads"   # 图片存储目录（相对 backend 根）
+    MULTIMODAL_MAX_FILE_SIZE_MB: int = 10         # 单文件大小上限（MB）
+    MULTIMODAL_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,gif,webp"  # 允许的图片扩展名
+    VISION_MODEL: str = ""                        # Vision 模型（空 = 复用 DEEPSEEK_MODEL）
+
+    # ===== 程序记忆（P2 R-14）=====
+    PROCEDURE_EXTRACTION_ENABLED: bool = True      # 轨迹提炼总开关；LLM 不可用/mock 时自动降级跳过
+    PROCEDURE_MIN_TRACE_CALLS: int = 2             # 至少 N 次工具调用的会话才提炼
+    PROCEDURE_MAX_SESSIONS_PER_RUN: int = 20       # 单轮每用户最多提炼会话数（LLM 成本上限）
+
+    # ===== 图谱社区检测（P2 R-15）=====
+    COMMUNITY_DETECTION_RESOLUTION: float = 1.0    # Louvain resolution（越大社区越小越多）
+    COMMUNITY_MIN_SIZE: int = 2                    # 最小社区大小（单点社区不入库）
 
     # ===== MCP Server =====
     MCP_ENABLED: bool = True                   # 是否启用 MCP Server

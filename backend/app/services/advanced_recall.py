@@ -707,6 +707,7 @@ def advanced_recall(
     question: str,
     top_k: int = 10,
     workspace_id: Optional[int] = None,
+    agent_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """高级召回入口 — 自动选择最优召回策略。
 
@@ -720,6 +721,7 @@ def advanced_recall(
         question: 问题
         top_k: 召回条数
         workspace_id: workspace ID
+        agent_id: 调用方 Agent ID（传入时按 scope 规则过滤 private 记忆）
 
     Returns:
         召回结果（含 memories, context, source 等字段）
@@ -761,6 +763,25 @@ def advanced_recall(
                 "source": "standard_filtered",
             }
 
+    return _apply_agent_scope(result, user_id, agent_id)
+
+
+def _apply_agent_scope(result: Dict[str, Any],
+                       user_id: int,
+                       agent_id: Optional[int]) -> Dict[str, Any]:
+    """对召回结果应用 Agent 作用域过滤（agent_id=None 时零行为变化）。
+
+    过滤后同步重建 context，避免 private 内容通过上下文文本泄露。
+    """
+    if agent_id is None or not result.get("memories"):
+        return result
+    from app.services.memory_fragment_service import apply_agent_scope_filter
+    original = result["memories"]
+    filtered = apply_agent_scope_filter(original, user_id, agent_id)
+    if len(filtered) != len(original):
+        result["memories"] = filtered
+        result["memory_count"] = len(filtered)
+        result["context"] = _format_standard_context(filtered)
     return result
 
 
@@ -1453,6 +1474,7 @@ def advanced_recall_v2(
     question: str,
     top_k: int = 10,
     workspace_id: Optional[int] = None,
+    agent_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """增强版高级召回入口 — 集成 P0 + P1 优化。
 
@@ -1484,7 +1506,7 @@ def advanced_recall_v2(
         # P1-2: 标注多键匹配（不重排，仅标注）
         _annotate_key_matches(result, user_id, question, top_k, workspace_id)
         result["p1_optimized"] = True
-        return result
+        return _apply_agent_scope(result, user_id, agent_id)
 
     elif is_multi_session_question(question):
         # P0-1: 多会话聚合
@@ -1494,7 +1516,7 @@ def advanced_recall_v2(
         # P1-2: 标注多键匹配（不重排，仅标注）
         _annotate_key_matches(result, user_id, question, top_k, workspace_id)
         result["p1_optimized"] = True
-        return result
+        return _apply_agent_scope(result, user_id, agent_id)
 
     else:
         # 标准问题：直接委托 P0 advanced_recall，保持最佳准确率
@@ -1504,6 +1526,7 @@ def advanced_recall_v2(
             question=question,
             top_k=top_k,
             workspace_id=workspace_id,
+            agent_id=agent_id,
         )
 
         # P1-2: 标注多键匹配（不重排，仅标注）

@@ -84,6 +84,11 @@ def run_benchmark(
 
     adapter = MemoryAdapter(user_id, workspace_id)
 
+    # LoCoMo 等数据集：同一 haystack_group 的实例共享同一段对话，
+    # 只需摄入一次，后续实例直接复用已存记忆（大幅节省摄入开销）
+    _current_group: Optional[str] = None
+    _group_stored = 0
+
     # 当不使用 LLM 生成答案时，也禁用混合检索的 LLM 重排序，避免网络超时
     _prev_rerank = None
     if not use_llm_answer:
@@ -105,15 +110,22 @@ def run_benchmark(
 
         logger.info(f"[{i+1}/{len(instances)}] 评估 {qid} (ability={ability}, repeat={repeat})")
 
-        # 1. 清空记忆（避免实例间干扰）
-        if reset_memory_between:
+        # 1. 清空记忆（避免实例间干扰）；同组实例复用已摄入记忆
+        group = instance.get("haystack_group")
+        reuse_group = group is not None and group == _current_group
+        if reset_memory_between and not reuse_group:
             adapter.reset()
 
         # 2. 摄入会话历史
-        sessions = instance.get("haystack_sessions", [])
-        dates = instance.get("haystack_dates", [])
-        ids = instance.get("haystack_session_ids", [])
-        stored = adapter.ingest_history(sessions, dates, ids)
+        if reuse_group:
+            stored = _group_stored
+        else:
+            sessions = instance.get("haystack_sessions", [])
+            dates = instance.get("haystack_dates", [])
+            ids = instance.get("haystack_session_ids", [])
+            stored = adapter.ingest_history(sessions, dates, ids)
+            _current_group = group
+            _group_stored = stored
 
         # 3. 多次运行收集正确性（多数票）
         run_correctness: List[bool] = []

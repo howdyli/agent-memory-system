@@ -94,3 +94,7 @@ backend/results/*
 
 # Benchmark large data files (>100MB, exceeds GitHub limit)
 backend/app/benchmarks/data/longmemeval_s.json
+backend/app/benchmarks/data/longmemeval/
+
+# 多模态记忆上传的图片（P2 R-13）
+backend/data/uploads/

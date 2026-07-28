@@ -63,6 +63,18 @@ HALF_LIFE_CONFIG = {
         "description": "临时偏好、短期兴趣、临时计划",
         "decay_enabled": True,
     },
+    # 多模态记忆（永久存储，P2 R-13：图片描述文本 + 附件关联）
+    "multimodal": {
+        "half_life_days": None,      # None = 永久
+        "description": "多模态记忆（图片描述文本，关联原始附件）",
+        "decay_enabled": False,
+    },
+    # 程序记忆（180 天半衰期，P2 R-14：可复用操作步骤）
+    "procedure": {
+        "half_life_days": 180,
+        "description": "程序记忆（操作步骤、工具使用流程）",
+        "decay_enabled": True,
+    },
 }
 
 # 默认半衰期
@@ -1946,7 +1958,23 @@ def run_maintenance_now() -> Dict[str, Any]:
         results["smart_forgetting"] = {"success": False, "error": str(e)}
         logger.error(f"✗ 智能遗忘失败: {e}")
 
-    # 5. 时序失效扫描（W2：标记已过 valid_until 的记忆为 expired）
+    # 5. 睡眠期记忆巩固（P1 R-11：聚簇 + LLM 合并压缩，LLM 不可用时自动降级跳过）
+    try:
+        from app.core.config import get_settings
+        if get_settings().CONSOLIDATION_ENABLED:
+            from app.services.memory_consolidation_service import run_scheduled_consolidation
+            consolidation_result = run_scheduled_consolidation()
+            results["consolidation"] = consolidation_result
+            logger.info(
+                f"记忆巩固: 处理 {consolidation_result.get('users_processed', 0)} 个用户"
+            )
+        else:
+            results["consolidation"] = {"success": True, "skipped": True}
+    except Exception as e:
+        results["consolidation"] = {"success": False, "error": str(e)}
+        logger.error(f"✗ 记忆巩固失败: {e}")
+
+    # 6. 时序失效扫描（W2：标记已过 valid_until 的记忆为 expired）
     try:
         from app.services.temporal_inference_service import scan_and_expire
         expire_result = scan_and_expire()
@@ -1955,6 +1983,22 @@ def run_maintenance_now() -> Dict[str, Any]:
     except Exception as e:
         results["temporal_expiry"] = {"success": False, "error": str(e)}
         logger.error(f"✗ 时序失效扫描失败: {e}")
+
+    # 7. 程序记忆提炼（P2 R-14：从成功工具轨迹提炼 procedure 记忆，LLM 不可用时自动降级跳过）
+    try:
+        from app.core.config import get_settings
+        if get_settings().PROCEDURE_EXTRACTION_ENABLED:
+            from app.services.procedure_extraction_service import run_scheduled_procedure_extraction
+            procedure_result = run_scheduled_procedure_extraction()
+            results["procedure_extraction"] = procedure_result
+            logger.info(
+                f"程序记忆提炼: 处理 {procedure_result.get('users_processed', 0)} 个用户"
+            )
+        else:
+            results["procedure_extraction"] = {"success": True, "skipped": True}
+    except Exception as e:
+        results["procedure_extraction"] = {"success": False, "error": str(e)}
+        logger.error(f"✗ 程序记忆提炼失败: {e}")
 
     results["success"] = True
     results["timestamp"] = datetime.now().isoformat()

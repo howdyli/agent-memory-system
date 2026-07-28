@@ -4,7 +4,7 @@
 提供记忆片段的 CRUD、Prompt 模板管理、语义搜索 API
 """
 import logging
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional, Any, Dict, List
 
@@ -74,6 +74,8 @@ class CreateFragmentRequest(BaseModel):
     ttl: Optional[int] = None  # 秒
     importance_score: Optional[float] = 0.5
     metadata: Optional[Dict[str, Any]] = None
+    agent_id: Optional[int] = None  # 所属 Agent（None=用户级记忆）
+    scope: Optional[str] = "shared"  # shared / private
 
 
 class UpdateFragmentRequest(BaseModel):
@@ -86,6 +88,7 @@ class SemanticSearchRequest(BaseModel):
     query: str
     top_k: Optional[int] = 5
     threshold: Optional[float] = 0.3
+    agent_id: Optional[int] = None  # 调用方 Agent（传入时按 scope 过滤 private 记忆）
 
 
 class BatchDeleteFragmentsRequest(BaseModel):
@@ -258,7 +261,9 @@ async def create_fragment_api(
             ttl=request.ttl,
             importance_score=request.importance_score or 0.5,
             metadata=request.metadata,
-            workspace_id=principal.workspace_id
+            workspace_id=principal.workspace_id,
+            agent_id=request.agent_id,
+            scope=request.scope or "shared"
         )
         if result["success"]:
             return result
@@ -438,17 +443,31 @@ async def semantic_search_api(
 ):
     """语义搜索记忆片段（基于向量相似性）"""
     try:
+        # Agent 作用域：校验该 agent 属于调用方 workspace，否则 403
+        if request.agent_id is not None:
+            from app.services.agent_registry_service import validate_agent_in_workspace
+            if not validate_agent_in_workspace(
+                request.agent_id, principal.user_id, principal.workspace_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Agent {request.agent_id} does not belong to current workspace"
+                )
+
         result = search_fragments_by_semantic(
             user_id=principal.user_id,
             query=request.query,
             top_k=request.top_k or 5,
             threshold=request.threshold or 0.3,
-            workspace_id=principal.workspace_id
+            workspace_id=principal.workspace_id,
+            agent_id=request.agent_id
         )
         if result["success"]:
             return result
         else:
             raise ValidationError(result.get("error", "Search failed"))
+    except HTTPException:
+        raise
     except AppException:
         raise
     except Exception as e:

@@ -341,7 +341,8 @@ def search_relevant_memories(user_id: int,
                              query: str,
                              top_k: int = 5,
                              threshold: float = 0.3,
-                             workspace_id: Optional[int] = None) -> Dict[str, Any]:
+                             workspace_id: Optional[int] = None,
+                             agent_id: Optional[int] = None) -> Dict[str, Any]:
     """
     检索与查询相关的记忆（Top-K 相关性检索）
     
@@ -352,6 +353,7 @@ def search_relevant_memories(user_id: int,
         query: 查询文本
         top_k: 返回 Top-K 结果
         threshold: 相关性阈值
+        agent_id: 调用方 Agent ID（传入时按 scope 规则过滤 private 记忆）
         
     Returns:
         检索结果
@@ -371,6 +373,10 @@ def search_relevant_memories(user_id: int,
 
         # 转为旧格式保持兼容
         top_memories = result.memories[:top_k]
+        # Agent 作用域过滤（agent_id=None 时行为不变）
+        if agent_id is not None:
+            from app.services.memory_fragment_service import apply_agent_scope_filter
+            top_memories = apply_agent_scope_filter(top_memories, user_id, agent_id)
         # 补充 relevance 字段（旧接口依赖）
         for mem in top_memories:
             if "relevance" not in mem:

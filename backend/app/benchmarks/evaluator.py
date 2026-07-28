@@ -171,6 +171,10 @@ def evaluate_answer(
             "reason": str,
         }
     """
+    # 参考答案可能是数字（如时间推理题的月数），统一转为字符串
+    reference_answer = str(reference_answer) if reference_answer is not None else ""
+    model_answer = str(model_answer) if model_answer is not None else ""
+
     # 优先使用 LLM Judge
     if use_llm_judge:
         prompt = JUDGE_PROMPT_TEMPLATE.format(

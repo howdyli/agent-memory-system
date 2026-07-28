@@ -43,17 +43,34 @@ class ChromaDBClient:
         try:
             import chromadb
             from chromadb.config import Settings
-            
+
+            # Embedding 可插拔（P0）：local 模式下集合名按模型隔离，
+            # 并将本地模型作为集合的 embedding_function（文档侧）。
+            # default 模式下 suffix 为空、ef 为 None，行为与历史完全一致。
+            embedding_fn = None
+            try:
+                from app.core.embedding import get_embedding_function, get_collection_suffix
+                suffix = get_collection_suffix()
+                if suffix and not self.collection_name.endswith(suffix):
+                    self.collection_name = f"{self.collection_name}{suffix}"
+                embedding_fn = get_embedding_function()
+            except Exception as e:
+                logger.warning(f"⚠️ Embedding Provider 初始化失败，回退 Chroma 内置嵌入: {e}")
+
             # 创建持久化客户端（本地存储）
             self.client = chromadb.PersistentClient(
                 path=self.persist_directory
             )
             
             # 检查集合是否存在
+            # 注意：显式传 embedding_function=None 会禁用 Chroma 内置默认嵌入，
+            # 因此 default 模式下必须完全不传该参数（保持历史行为）
+            ef_kwargs = {"embedding_function": embedding_fn} if embedding_fn is not None else {}
             try:
                 # 尝试获取集合
                 self.collection = self.client.get_collection(
-                    name=self.collection_name
+                    name=self.collection_name,
+                    **ef_kwargs,
                 )
                 logger.info(f"✓ 连接到现有集合: {self.collection_name}")
             except Exception:
@@ -65,7 +82,8 @@ class ChromaDBClient:
                     metadata={
                         "hnsw:space": "cosine",  # 使用余弦相似度
                         "hnsw:num_threads": 1,   # 单线程，避免多线程 HNSW 段错误
-                    }
+                    },
+                    **ef_kwargs,
                 )
                 logger.info(f"✓ 创建新集合: {self.collection_name}")
             
@@ -145,18 +163,25 @@ class ChromaDBClient:
             相似结果列表，每个结果包含 id, document, metadata, distance
         """
         try:
+            # 查询侧嵌入：local 模式由 provider 预计算（bge 系列自动加检索指令前缀），
+            # default 模式仍传 query_texts 由 Chroma 内置嵌入计算。
+            query_kwargs: Dict[str, Any] = {"n_results": n_results}
+            provider = None
+            try:
+                from app.core.embedding import get_embedding_provider
+                provider = get_embedding_provider()
+            except Exception:
+                provider = None
+            if provider is not None:
+                query_kwargs["query_embeddings"] = [provider.embed_query(query_text)]
+            else:
+                query_kwargs["query_texts"] = [query_text]
+
             # 执行相似性搜索
             if where:
-                results = self.collection.query(
-                    query_texts=[query_text],
-                    n_results=n_results,
-                    where=where
-                )
+                results = self.collection.query(where=where, **query_kwargs)
             else:
-                results = self.collection.query(
-                    query_texts=[query_text],
-                    n_results=n_results
-                )
+                results = self.collection.query(**query_kwargs)
             
             # 格式化结果
             formatted_results = []

@@ -36,6 +36,7 @@ from app.api import (
     agent, memory_lifecycle, graph_memory, hybrid_search,
     memory_observability, sessions, workspace, webhooks, events,
     business_metrics, memory_evolution, smart_forgetting, playground,
+    memory_consolidation, agents, multimodal, procedures,
 )
 
 
@@ -385,6 +386,10 @@ app.include_router(business_metrics.router, prefix="/api/v1", tags=["system"])
 app.include_router(memory_evolution.router, prefix="/api/v1", tags=["memory-evolution"])
 app.include_router(smart_forgetting.router, prefix="/api/v1", tags=["smart-forgetting"])
 app.include_router(playground.router, prefix="/api/v1/playground", tags=["playground"])
+app.include_router(memory_consolidation.router, prefix="/api/v1", tags=["memory-consolidation"])
+app.include_router(agents.router, prefix="/api/v1/agents", tags=["agents"])
+app.include_router(multimodal.router, prefix="/api/v1/memory/multimodal", tags=["memory-multimodal"])
+app.include_router(procedures.router, prefix="/api/v1/memory/procedures", tags=["memory-procedures"])
 
 
 # ------------------------------------------------------------------

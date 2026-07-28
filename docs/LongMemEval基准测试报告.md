@@ -2,8 +2,8 @@
 
 > **R-02: 运行 LongMemEval 基准并发布结果**
 >
-> 测试日期: 2026-07-24
-> 基准版本: LongMemEval (ICLR 2025) — 合成验证数据集
+> 测试日期: 2026-07-24（合成集）/ 2026-07-28（真实集 100 题分层抽样）
+> 基准版本: LongMemEval (ICLR 2025) — 合成验证集 + 真实 LongMemEval-S
 > 评估对象: Agent Memory System v0.3.0
 
 ---
@@ -21,10 +21,12 @@
 | LLM 全流程（基线，无 P0） | 10 | 9 | **90.0%** | llm_judge |
 | LLM 全流程（P0 优化后） | 10 | 10 | **100.0%** | llm_judge |
 | LLM 全流程（P0 优化后，重跑） | 10 | 7 | **70.0%** | llm_judge |
-| **LLM 全流程（P1 优化后）** | 10 | 9 | **90.0%** | llm_judge |
+| LLM 全流程（P1 优化后） | 10 | 9 | **90.0%** | llm_judge |
+| **真实 LongMemEval-S 100 题分层抽样（P0+P1）** | **100** | **70** | **70.0% [60.4%, 78.1%]** | llm_judge |
 
 > **LLM 非确定性说明**：LLM 答案生成和评判存在非确定性，同一配置多次运行的准确率在 70%-100% 之间波动。P1 优化采用非破坏性设计（标准问题委托 P0），准确率稳定在波动区间内。
 
+- **真实数据集 100 题分层抽样准确率 70.0%（95% CI [60.4%, 78.1%]）**，详见 §11，达成"真实 LongMemEval-S 上 70%+"目标下限
 - **P0 优化将多会话推理从 50% 提升至 100%**（+50%），P0-1 多会话聚合修复了跨会话信息遗漏
 - **P1 优化采用非破坏性增强设计**：标准问题委托 P0，时间问题使用查询扩展，多键索引仅标注不重排
 - 启发式模式准确率从 10% 提升至 30%（+20%），P0-2 时间感知召回修复了时间排序问题
@@ -501,16 +503,18 @@ python -m app.benchmarks.runner run --suite longmemeval \
     --output results/longmemeval_full.json
 ```
 
-### 9.6 竞品对比表（模板）
+### 9.6 竞品对比表
 
-真实数据集评测完成后将填充：
+基于 §11 的真实数据集 100 题分层抽样结果：
 
 | 系统 | 准确率 | 95% CI | 备注 |
 |------|--------|--------|------|
-| **AMS (本系统)** | 待评测 | 待评测 | P0+P1 优化 |
+| **AMS (本系统)** | **70.0%** | [60.4%, 78.1%] | 100 题分层抽样，P0+P1 优化，DeepSeek V4 Flash |
 | Mem0 | 49.0% | — | LongMemEval-S 官方 |
 | Zep | 71.2% | — | LongMemEval-S 官方（部分配置 94.7%） |
 | Letta | — | — | 未发布 LongMemEval-S |
+
+> 注：竞品为全量 500 题 + GPT-4o 级 reader，本系统为 100 题抽样 + DeepSeek V4 Flash，不可严格直接对比；AMS 的 CI 下限（60.4%）已高于 Mem0 官方分数。
 
 ### 9.7 环境变量配置
 
@@ -598,14 +602,82 @@ shutil.copy(path, 'backend/app/benchmarks/data/longmemeval_s.json')
 | P1 | 50 题分层抽样评测（5 类 × 10 题） | 覆盖所有能力类别，耗时 ~25 分钟 |
 | P2 | 500 题全量评测 + `--repeat 3` 多数票 | 夜间运行，~21 小时，发布权威分数 |
 
-### 10.6 竞品对比（待全量评测后填充）
+### 10.6 竞品对比
 
-| 系统 | LongMemEval-S 准确率 | 数据集规模 | 备注 |
-|------|---------------------|------------|------|
-| **Agent Memory System** | 待评测（小样本 50%） | 500 题 | 启发式模式，无 LLM 答案 |
-| Mem0 | 未发布 | — | — |
-| Letta | 74.0% | 500 题 | — |
-| Zep | 94.7% | 500 题 | — |
+已由 §11 的 100 题分层抽样结果替代（AMS 70.0% [60.4%, 78.1%]），详见 §9.6 与 §11。
+
+---
+
+## 11. Phase 5：真实数据集 100 题分层抽样评测
+
+> 测试日期: 2026-07-28
+> 数据集: 真实 LongMemEval-S（500 题，HuggingFace `xiaowu0162/longmemeval`）
+> 抽样: 5 能力 × 各 20 题 = 100 题，固定 seed=42，可复现
+
+### 11.1 评测配置
+
+| 配置项 | 值 |
+|--------|-----|
+| 抽样方法 | 分层抽样（`stratified_eval.py`），每能力类别 20 题，seed=42 |
+| Reader / Judge | DeepSeek V4 Flash |
+| Embedding | default（Chroma 内置 all-MiniLM-L6-v2） |
+| 召回 top_k | 10（禁用 LLM rerank 与矛盾检测加速） |
+| 多数票 | repeat=1（未启用） |
+| 环境 | 隔离评测环境（fakeredis + 临时 SQLite/Chroma 目录） |
+| 耗时 | 30976 秒（约 8.6 小时，平均 310s/题，含每题完整摄入 ~40 会话） |
+| 结果文件 | `backend/results/lme100_default.json` |
+
+### 11.2 总体结果
+
+| 指标 | 值 |
+|------|-----|
+| 实例总数 | 100 |
+| 正确数 | 70 |
+| **准确率** | **70.0%** |
+| 95% Wilson CI | [60.4%, 78.1%] |
+
+### 11.3 按记忆能力分类
+
+| 能力 | 总数 | 正确 | 准确率 | 95% CI |
+|------|------|------|--------|--------|
+| 弃权 (abstention) | 20 | 19 | **95.0%** | [76.4%, 99.1%] |
+| 知识更新 (knowledge_update) | 20 | 17 | **85.0%** | [64.0%, 94.8%] |
+| 信息提取 (information_extraction) | 20 | 13 | 65.0% | [43.3%, 81.9%] |
+| 时间推理 (temporal_reasoning) | 20 | 12 | 60.0% | [38.7%, 78.1%] |
+| 多会话推理 (multi_session_reasoning) | 20 | 9 | **45.0%** | [25.8%, 65.8%] |
+
+### 11.4 分析
+
+- **弃权（95%）与知识更新（85%）是强项**：P0-3 知识更新检测（superseded 标记）与"无相关记忆时主动弃权"的 prompt 约束在真实数据集上同样有效
+- **多会话推理（45%）是最大短板**：与合成集上的结论一致；真实数据每题 ~40 会话，跨会话证据散布范围远超 top_k=10 的覆盖能力，P0-1 子查询分解在大规模干草堆下收益衰减
+- **时间推理（60%）**：时间感知召回能找到相关记忆，但部分题需要精确的日期运算（如"相隔几个月"），reader 在长上下文中计算易错
+- 与行业对比：70.0% 介于 Mem0（49.0%）与 Zep（71.2%）之间，考虑到 reader 为轻量级模型（非 GPT-4o），记忆管道本身的召回质量已具竞争力
+
+### 11.5 Embedding A/B 对比说明
+
+原计划同步运行 `EMBEDDING_PROVIDER=local`（BAAI/bge-small-en-v1.5）对比轮，**本轮按用户指令跳过**。Embedding 可插拔能力已落地（集合按模型后缀隔离，切换零迁移），后续可直接运行：
+
+```bash
+cd backend
+PYTHONPATH=. REDIS_URL=fakeredis:// \
+EMBEDDING_PROVIDER=local EMBEDDING_MODEL=BAAI/bge-small-en-v1.5 \
+HF_ENDPOINT=https://hf-mirror.com \
+python -m app.benchmarks.stratified_eval \
+    --data app/benchmarks/data/longmemeval/longmemeval_s \
+    --per-class 20 --user-id 9912 \
+    --output results/lme100_local.json
+```
+
+### 11.6 复现命令
+
+```bash
+cd backend
+PYTHONPATH=. REDIS_URL=fakeredis:// python -m app.benchmarks.stratified_eval \
+    --data app/benchmarks/data/longmemeval/longmemeval_s \
+    --per-class 20 --user-id 9910 \
+    --output results/lme100_default.json
+# 分层抽样固定 seed=42，抽样结果可复现
+```
 
 ---
 
