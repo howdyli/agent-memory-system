@@ -1,0 +1,12 @@
+[
+  {"op": "remember", "args": {"key": "eq_test_name", "value": "张三"}},
+  {"op": "remember", "args": {"key": "eq_test_age", "value": 28}},
+  {"op": "list_variables", "args": {}},
+  {"op": "create_fragment", "args": {"content": "等价性测试片段：用户喜欢极简设计", "importance_score": 0.8}},
+  {"op": "create_fragment", "args": {"content": "用户在研究记忆系统架构", "importance_score": 0.6}},
+  {"op": "search", "args": {"query": "等价性测试", "top_k": 5}},
+  {"op": "recall", "args": {"query": "用户的偏好"}},
+  {"op": "get_context", "args": {}},
+  {"op": "forget", "args": {"key": "eq_test_name"}},
+  {"op": "list_variables", "args": {}}
+]

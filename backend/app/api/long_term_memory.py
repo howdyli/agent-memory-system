@@ -103,7 +103,7 @@ async def get_all_memories_api(
         )
 
 
-@router.post("/versions")
+@router.post("/versions", status_code=status.HTTP_201_CREATED)
 async def record_version_api(
     request: RecordVersionRequest,
     principal: Principal = Depends(get_current_principal)

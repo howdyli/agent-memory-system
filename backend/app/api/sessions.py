@@ -152,7 +152,7 @@ async def search_sessions(
         return {"success": True, "sessions": sessions, "count": len(sessions), "query": q}
     except Exception as e:
         logger.warning(f"搜索会话失败: {e}")
-        return {"success": False, "error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ----------------------------------------------------------
@@ -197,7 +197,7 @@ async def batch_delete_sessions(
         }
     except Exception as e:
         logger.warning(f"批量删除会话失败: {e}")
-        return {"success": False, "error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ----------------------------------------------------------
@@ -208,7 +208,7 @@ async def get_session(session_id: str):
     mgr = _get_conversation_mgr()
     session = mgr.get_session(session_id)
     if not session:
-        return {"success": False, "error": "会话不存在"}
+        raise HTTPException(status_code=404, detail="会话不存在")
     return {"success": True, "session": session}
 
 

@@ -471,7 +471,7 @@ class TestObservabilityIntegration:
         mock_loop.create_task = MagicMock()
 
         with patch("app.core.event_bus.get_event_bus", mock_get_bus), \
-             patch("asyncio.get_event_loop", return_value=mock_loop):
+             patch("asyncio.get_running_loop", return_value=mock_loop):
             result = record_trace_event(
                 user_id=1,
                 memory_id="frag_001",
@@ -483,3 +483,6 @@ class TestObservabilityIntegration:
         assert result["success"] is True
         # 验证 create_task 被调用（异步发布）
         mock_loop.create_task.assert_called_once()
+        # 关闭未 await 的协程，避免 "coroutine was never awaited" 警告
+        coro = mock_loop.create_task.call_args[0][0]
+        coro.close()

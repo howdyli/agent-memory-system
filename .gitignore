@@ -86,3 +86,15 @@ packages/sdk-python/src/*.egg-info/
 
 # draw.io 自动保存备份
 .$*.drawio.bkp
+
+# Benchmark generated results
+backend/results/*
+# 基线文件入 Git（W4-F4.1）
+!backend/results/baselines/
+
+# Benchmark large data files (>100MB, exceeds GitHub limit)
+backend/app/benchmarks/data/longmemeval_s.json
+backend/app/benchmarks/data/longmemeval/
+
+# 多模态记忆上传的图片（P2 R-13）
+backend/data/uploads/

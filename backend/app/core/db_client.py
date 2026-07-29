@@ -121,6 +121,7 @@ class SQLiteClient:
                     embedding_id TEXT,  -- 关联向量数据库ID
                     ttl INTEGER,  -- 过期时间（秒）
                     importance_score REAL DEFAULT 0.5,
+                    extra_data TEXT,  -- JSON 附加元数据（session_id/routing_key/source 等）
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     expires_at TIMESTAMP,  -- 计算后的过期时间
                     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -207,11 +208,25 @@ class SQLiteClient:
                 ("last_recalled_at", "TIMESTAMP"),
                 ("cold_at", "TIMESTAMP"),
                 ("vector_synced", "INTEGER DEFAULT 0"),
+                ("valid_from", "TIMESTAMP"),
+                ("valid_until", "TIMESTAMP"),
+                ("workspace_id", "INTEGER"),
+                # P1: 跨 Agent 共享记忆作用域（NULL agent_id = 用户级记忆）
+                ("agent_id", "INTEGER"),
+                ("scope", "TEXT DEFAULT 'shared'"),
+                # 附加元数据 JSON（session_id/routing_key/source 等）
+                ("extra_data", "TEXT"),
             ]:
                 try:
                     cursor.execute(f"ALTER TABLE memory_fragments ADD COLUMN {col} {col_type}")
                 except Exception:
                     pass
+
+            # workspace 隔离：memory_tables 补 workspace_id 列（嵌入模式全新库也需要）
+            try:
+                cursor.execute("ALTER TABLE memory_tables ADD COLUMN workspace_id INTEGER")
+            except Exception:
+                pass
 
             # ============================================================
             # 向量写入 Outbox 表（跨存储事务一致性）
@@ -237,6 +252,33 @@ class SQLiteClient:
                 ON vector_outbox(next_retry_at)
                 WHERE retry_count < 5
             ''')
+
+            # P1: vector_outbox 补充 agent 作用域列（兼容旧表）
+            for col, col_type in [
+                ("agent_id", "INTEGER"),
+                ("scope", "TEXT DEFAULT 'shared'"),
+            ]:
+                try:
+                    cursor.execute(f"ALTER TABLE vector_outbox ADD COLUMN {col} {col_type}")
+                except Exception:
+                    pass
+
+            # ============================================================
+            # P1: Agent 注册表（跨 Agent 共享记忆作用域）
+            # ============================================================
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS agents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    workspace_id INTEGER,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(workspace_id, name),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_id)')
 
             # ============================================================
             # Graph Memory 知识图谱表

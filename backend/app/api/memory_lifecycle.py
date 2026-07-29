@@ -98,6 +98,12 @@ class DetectConflictRequest(BaseModel):
     new_value: str = Field(..., min_length=1)
 
 
+class ResolveFragmentConflictRequest(BaseModel):
+    """W2-F2.3: 记忆片段冲突手动解决请求"""
+    resolution: Literal["keep_old", "keep_new", "keep_both"]
+    reason: Optional[str] = Field("", max_length=500)
+
+
 # ============================================================
 # 1. 半衰期与生命周期查询
 # ============================================================
@@ -496,6 +502,53 @@ async def resolve_conflict_by_id_api(
             resolution=request.resolution,
             merged_value=request.merged_value,
             workspace_id=principal.workspace_id,
+        )
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# W2-F2.3: 记忆片段冲突（memory_conflicts 表，矛盾检测 manual_review 产生）
+# ============================================================
+
+@router.get("/memory/conflicts")
+async def list_fragment_conflicts_api(
+    status_filter: str = Query("conflict_pending", alias="status"),
+    limit: int = Query(50, ge=1, le=200),
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
+):
+    """列出记忆片段冲突记录（默认仅待处理）"""
+    try:
+        from app.services.conflict_resolution_service import list_conflicts
+        result = list_conflicts(principal.user_id, status=status_filter, limit=limit)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/memory/conflicts/{conflict_id}/resolve")
+async def resolve_fragment_conflict_api(
+    conflict_id: int,
+    request: ResolveFragmentConflictRequest,
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE)),
+):
+    """手动解决一条记忆片段冲突（keep_old | keep_new | keep_both）"""
+    try:
+        from app.services.conflict_resolution_service import resolve_conflict_manual
+        result = resolve_conflict_manual(
+            user_id=principal.user_id,
+            conflict_id=conflict_id,
+            resolution=request.resolution,
+            reason=request.reason or "",
         )
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))

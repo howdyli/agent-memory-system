@@ -1,0 +1,386 @@
+[
+  {
+    "question_id": "rq_001",
+    "question": "What is my favorite programming language?",
+    "capability": "info_extraction",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I have been coding in Python for 5 years now."},
+        {"role": "assistant", "content": "That's great! Python is a versatile language."}
+      ],
+      [
+        {"role": "user", "content": "I love using Python for data analysis."},
+        {"role": "assistant", "content": "Python has excellent libraries like pandas and numpy."}
+      ]
+    ],
+    "haystack_dates": ["2024/05/15", "2024/05/20"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "I have been coding in Python for 5 years now.",
+      "I love using Python for data analysis."
+    ]
+  },
+  {
+    "question_id": "rq_002",
+    "question": "Where do I work?",
+    "capability": "info_extraction",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I just got a job at Google as a software engineer."},
+        {"role": "assistant", "content": "Congratulations on your new role at Google!"}
+      ]
+    ],
+    "haystack_dates": ["2024/05/10"],
+    "haystack_session_ids": ["s1"],
+    "expected_fragment_contents": [
+      "I just got a job at Google as a software engineer."
+    ]
+  },
+  {
+    "question_id": "rq_003",
+    "question": "How many years of programming experience do I have in total?",
+    "capability": "multi_session",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I started learning Java in 2018."},
+        {"role": "assistant", "content": "Java is a widely-used programming language."}
+      ],
+      [
+        {"role": "user", "content": "I have been coding in Python for 5 years now."},
+        {"role": "assistant", "content": "That's great! Python is a versatile language."}
+      ]
+    ],
+    "haystack_dates": ["2024/05/12", "2024/05/15"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "I started learning Java in 2018.",
+      "I have been coding in Python for 5 years now."
+    ]
+  },
+  {
+    "question_id": "rq_004",
+    "question": "What languages do I speak?",
+    "capability": "multi_session",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I am fluent in English and Spanish."},
+        {"role": "assistant", "content": "Being bilingual is a great skill!"}
+      ],
+      [
+        {"role": "user", "content": "I also started learning Japanese last year."},
+        {"role": "assistant", "content": "Japanese is a fascinating language to learn."}
+      ]
+    ],
+    "haystack_dates": ["2024/05/01", "2024/05/08"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "I am fluent in English and Spanish.",
+      "I also started learning Japanese last year."
+    ]
+  },
+  {
+    "question_id": "rq_005",
+    "question": "What was my first programming language?",
+    "capability": "temporal_reasoning",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I started learning Java in 2018."},
+        {"role": "assistant", "content": "Java is a widely-used programming language."}
+      ],
+      [
+        {"role": "user", "content": "I have been coding in Python for 5 years now."},
+        {"role": "assistant", "content": "That's great! Python is a versatile language."}
+      ]
+    ],
+    "haystack_dates": ["2024/05/12", "2024/05/15"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "I started learning Java in 2018."
+    ]
+  },
+  {
+    "question_id": "rq_006",
+    "question": "What is my current job title?",
+    "capability": "temporal_reasoning",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I used to work as a data analyst at a startup."},
+        {"role": "assistant", "content": "Data analysis is an important field."}
+      ],
+      [
+        {"role": "user", "content": "I just got a job at Google as a software engineer."},
+        {"role": "assistant", "content": "Congratulations on your new role at Google!"}
+      ]
+    ],
+    "haystack_dates": ["2024/04/20", "2024/05/10"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "I just got a job at Google as a software engineer."
+    ]
+  },
+  {
+    "question_id": "rq_007",
+    "question": "What is my current favorite programming language?",
+    "capability": "knowledge_update",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "My favorite programming language is Java."},
+        {"role": "assistant", "content": "Java is a solid choice for enterprise applications."}
+      ],
+      [
+        {"role": "user", "content": "Actually, I switched to Python as my favorite language recently."},
+        {"role": "assistant", "content": "Python is very popular for data science and AI."}
+      ]
+    ],
+    "haystack_dates": ["2024/05/01", "2024/05/15"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "Actually, I switched to Python as my favorite language recently."
+    ]
+  },
+  {
+    "question_id": "rq_008",
+    "question": "Where do I currently live?",
+    "capability": "knowledge_update",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I live in New York City."},
+        {"role": "assistant", "content": "NYC is a vibrant city!"}
+      ],
+      [
+        {"role": "user", "content": "I recently moved to San Francisco for a new job."},
+        {"role": "assistant", "content": "San Francisco is a great tech hub."}
+      ]
+    ],
+    "haystack_dates": ["2024/04/01", "2024/05/10"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "I recently moved to San Francisco for a new job."
+    ]
+  },
+  {
+    "question_id": "rq_009",
+    "question": "What is my pet's name?",
+    "capability": "abstention",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I like reading science fiction novels."},
+        {"role": "assistant", "content": "Science fiction is a fascinating genre!"}
+      ]
+    ],
+    "haystack_dates": ["2024/05/01"],
+    "haystack_session_ids": ["s1"],
+    "expected_fragment_contents": []
+  },
+  {
+    "question_id": "rq_010",
+    "question": "What is my salary?",
+    "capability": "abstention",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I just got a job at Google as a software engineer."},
+        {"role": "assistant", "content": "Congratulations on your new role at Google!"}
+      ]
+    ],
+    "haystack_dates": ["2024/05/10"],
+    "haystack_session_ids": ["s1"],
+    "expected_fragment_contents": []
+  },
+  {
+    "question_id": "rq_011",
+    "question": "用户参与的项目有哪些？",
+    "capability": "multi_session",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我负责了电商平台的支付模块重构。"},
+        {"role": "assistant", "content": "支付模块重构是很有挑战的项目。"}
+      ],
+      [
+        {"role": "user", "content": "上个月我还参与了数据分析平台的搭建。"},
+        {"role": "assistant", "content": "数据分析平台对企业决策很重要。"}
+      ]
+    ],
+    "haystack_dates": ["2024/06/01", "2024/06/15"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "我负责了电商平台的支付模块重构。",
+      "上个月我还参与了数据分析平台的搭建。"
+    ]
+  },
+  {
+    "question_id": "rq_012",
+    "question": "用户最近在学习什么技术？",
+    "capability": "multi_session",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我在学习 React 前端框架。"},
+        {"role": "assistant", "content": "React 是很流行的前端框架。"}
+      ],
+      [
+        {"role": "user", "content": "这周开始研究 Kubernetes 容器编排。"},
+        {"role": "assistant", "content": "K8s 在云原生领域应用广泛。"}
+      ]
+    ],
+    "haystack_dates": ["2024/06/10", "2024/06/20"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "我在学习 React 前端框架。",
+      "这周开始研究 Kubernetes 容器编排。"
+    ]
+  },
+  {
+    "question_id": "rq_013",
+    "question": "用户第一份工作是什么？",
+    "capability": "temporal_reasoning",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我的第一份工作是在一家创业公司做前端开发。"},
+        {"role": "assistant", "content": "创业公司的经历很锻炼人。"}
+      ],
+      [
+        {"role": "user", "content": "后来我跳槽到了大厂做全栈开发。"},
+        {"role": "assistant", "content": "全栈开发需要掌握前端和后端技能。"}
+      ]
+    ],
+    "haystack_dates": ["2024/05/05", "2024/05/20"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "我的第一份工作是在一家创业公司做前端开发。"
+    ]
+  },
+  {
+    "question_id": "rq_014",
+    "question": "用户上周做了什么？",
+    "capability": "temporal_reasoning",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "两周前我完成了季度报告。"},
+        {"role": "assistant", "content": "季度报告完成得很及时。"}
+      ],
+      [
+        {"role": "user", "content": "上周我参加了技术架构评审会议。"},
+        {"role": "assistant", "content": "架构评审对项目质量很重要。"}
+      ]
+    ],
+    "haystack_dates": ["2024/06/05", "2024/06/12"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "上周我参加了技术架构评审会议。"
+    ]
+  },
+  {
+    "question_id": "rq_015",
+    "question": "用户当前使用的开发工具是什么？",
+    "capability": "knowledge_update",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我一直用 VSCode 写代码。"},
+        {"role": "assistant", "content": "VSCode 是很受欢迎的编辑器。"}
+      ],
+      [
+        {"role": "user", "content": "最近换成了 Cursor，因为它有 AI 辅助功能。"},
+        {"role": "assistant", "content": "Cursor 的 AI 功能确实很强大。"}
+      ]
+    ],
+    "haystack_dates": ["2024/05/01", "2024/06/01"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "最近换成了 Cursor，因为它有 AI 辅助功能。"
+    ]
+  },
+  {
+    "question_id": "rq_016",
+    "question": "用户当前的团队规模是多少？",
+    "capability": "knowledge_update",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我们团队有 5 个人。"},
+        {"role": "assistant", "content": "5 个人的团队比较精简。"}
+      ],
+      [
+        {"role": "user", "content": "这个月团队扩招到了 12 个人。"},
+        {"role": "assistant", "content": "团队规模翻倍了，恭喜！"}
+      ]
+    ],
+    "haystack_dates": ["2024/05/15", "2024/06/15"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "这个月团队扩招到了 12 个人。"
+    ]
+  },
+  {
+    "question_id": "rq_017",
+    "question": "用户有哪些编程语言经验？",
+    "capability": "multi_session",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我有 5 年 Python 开发经验。"},
+        {"role": "assistant", "content": "Python 经验很丰富。"}
+      ],
+      [
+        {"role": "user", "content": "之前还做过 3 年 Java 后端。"},
+        {"role": "assistant", "content": "Java 后端经验也很有价值。"}
+      ],
+      [
+        {"role": "user", "content": "最近在学 Rust。"},
+        {"role": "assistant", "content": "Rust 是系统级编程的好选择。"}
+      ]
+    ],
+    "haystack_dates": ["2024/05/01", "2024/05/10", "2024/05/20"],
+    "haystack_session_ids": ["s1", "s2", "s3"],
+    "expected_fragment_contents": [
+      "我有 5 年 Python 开发经验。",
+      "之前还做过 3 年 Java 后端。",
+      "最近在学 Rust。"
+    ]
+  },
+  {
+    "question_id": "rq_018",
+    "question": "用户今年去过哪些地方？",
+    "capability": "multi_session",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "今年 3 月去了东京出差。"},
+        {"role": "assistant", "content": "东京是个现代化的城市。"}
+      ],
+      [
+        {"role": "user", "content": "5 月去新加坡参加了技术大会。"},
+        {"role": "assistant", "content": "新加坡的技术大会很有影响力。"}
+      ]
+    ],
+    "haystack_dates": ["2024/03/15", "2024/05/20"],
+    "haystack_session_ids": ["s1", "s2"],
+    "expected_fragment_contents": [
+      "今年 3 月去了东京出差。",
+      "5 月去新加坡参加了技术大会。"
+    ]
+  },
+  {
+    "question_id": "rq_019",
+    "question": "用户的结婚纪念日是哪天？",
+    "capability": "abstention",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我喜欢周末去爬山。"},
+        {"role": "assistant", "content": "爬山是很好的户外运动。"}
+      ]
+    ],
+    "haystack_dates": ["2024/06/01"],
+    "haystack_session_ids": ["s1"],
+    "expected_fragment_contents": []
+  },
+  {
+    "question_id": "rq_020",
+    "question": "用户的银行卡密码是多少？",
+    "capability": "abstention",
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我最近在用招商银行的信用卡。"},
+        {"role": "assistant", "content": "招行信用卡优惠挺多的。"}
+      ]
+    ],
+    "haystack_dates": ["2024/06/10"],
+    "haystack_session_ids": ["s1"],
+    "expected_fragment_contents": []
+  }
+]

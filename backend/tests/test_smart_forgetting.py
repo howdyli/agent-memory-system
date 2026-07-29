@@ -434,9 +434,15 @@ class TestSmartForgettingAPI:
 class TestMaintenanceIntegration:
     """验证智能遗忘已集成到维护任务中。"""
 
-    def test_run_maintenance_includes_forgetting(self):
+    def test_run_maintenance_includes_forgetting(self, monkeypatch):
         """run_maintenance_now 的结果应包含 smart_forgetting 字段。"""
+        from app.core.config import get_settings
         from app.services.memory_lifecycle_service import run_maintenance_now
+
+        # 关闭睡眠期巩固（真实库上全量嵌入计算过重；巩固有专属测试覆盖）
+        monkeypatch.setattr(get_settings(), "CONSOLIDATION_ENABLED", False)
+        # 关闭程序记忆提炼（真实库轨迹扫描过重；提炼有专属测试覆盖）
+        monkeypatch.setattr(get_settings(), "PROCEDURE_EXTRACTION_ENABLED", False)
 
         result = run_maintenance_now()
         assert "smart_forgetting" in result

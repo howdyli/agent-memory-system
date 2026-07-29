@@ -6,6 +6,7 @@ Agent 循环编排服务
 """
 import logging
 import json
+import time
 import uuid
 from typing import Optional, Dict, Any, List, Generator
 
@@ -646,14 +647,31 @@ def memory_aware_chat(
             except json.JSONDecodeError:
                 func_args = {}
 
-            # 执行工具
+            # 执行工具（计时供轨迹落库）
+            _tool_started = time.monotonic()
             tool_result = _handle_tool_call(sdk, func_name, func_args)
+            _tool_duration_ms = int((time.monotonic() - _tool_started) * 1000)
 
             all_tool_calls.append({
                 "tool": func_name,
                 "arguments": func_args,
                 "result": tool_result,
             })
+
+            # 工具调用轨迹落库（P2 R-14 程序记忆数据源，失败不影响主流程）
+            try:
+                from app.services.tool_trace_service import record_tool_call
+                record_tool_call(
+                    user_id=user_id,
+                    session_id=session_id,
+                    round_idx=round_idx,
+                    tool_name=func_name,
+                    arguments=func_args,
+                    result=tool_result,
+                    duration_ms=_tool_duration_ms,
+                )
+            except Exception as e:
+                logger.warning(f"工具轨迹落库失败（不影响响应）: {e}")
 
             # 将工具结果追加到 messages
             messages.append({

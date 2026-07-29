@@ -23,11 +23,6 @@ export default function RecallPage() {
     } catch { message.error('配置更新失败'); }
   };
 
-  const handleWeightChange = async (key: string, value: number) => {
-    try { await updateConfig.mutateAsync({ [key]: value }); }
-    catch { message.error('权重更新失败'); }
-  };
-
   const handleRecall = async () => {
     if (!query.trim()) { message.warning('请输入查询'); return; }
     setLoading(true);

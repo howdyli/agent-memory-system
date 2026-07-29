@@ -35,7 +35,8 @@ from app.api import (
     memory_fragments, auto_recall, long_term_memory, system_integration,
     agent, memory_lifecycle, graph_memory, hybrid_search,
     memory_observability, sessions, workspace, webhooks, events,
-    business_metrics, memory_evolution, smart_forgetting,
+    business_metrics, memory_evolution, smart_forgetting, playground,
+    memory_consolidation, agents, multimodal, procedures,
 )
 
 
@@ -384,6 +385,11 @@ app.include_router(events.router, prefix="/api/v1/events", tags=["events"])
 app.include_router(business_metrics.router, prefix="/api/v1", tags=["system"])
 app.include_router(memory_evolution.router, prefix="/api/v1", tags=["memory-evolution"])
 app.include_router(smart_forgetting.router, prefix="/api/v1", tags=["smart-forgetting"])
+app.include_router(playground.router, prefix="/api/v1/playground", tags=["playground"])
+app.include_router(memory_consolidation.router, prefix="/api/v1", tags=["memory-consolidation"])
+app.include_router(agents.router, prefix="/api/v1/agents", tags=["agents"])
+app.include_router(multimodal.router, prefix="/api/v1/memory/multimodal", tags=["memory-multimodal"])
+app.include_router(procedures.router, prefix="/api/v1/memory/procedures", tags=["memory-procedures"])
 
 
 # ------------------------------------------------------------------
@@ -394,7 +400,7 @@ app.include_router(smart_forgetting.router, prefix="/api/v1", tags=["smart-forge
 # ------------------------------------------------------------------
 _mcp_mounted = False
 try:
-    from app.mcp_server import mount_to_app, list_mcp_tools, _mcp_available
+    from app.mcp_server import mount_to_app, list_mcp_tools, _mcp_available, _mounted_transport
     if _mcp_available and settings.MCP_ENABLED:
         _mcp_mounted = mount_to_app(app, path="/mcp")
 except Exception as e:
@@ -413,7 +419,7 @@ async def mcp_tools_endpoint():
     return {
         "success": True,
         "mounted": _mcp_mounted,
-        "transport": settings.MCP_TRANSPORT if _mcp_mounted else None,
+        "transport": _mounted_transport if _mcp_mounted else None,
         "endpoint": "/mcp" if _mcp_mounted else None,
         "tools": list_mcp_tools() if _mcp_available else [],
         "tools_count": len(list_mcp_tools()) if _mcp_available else 0,
@@ -428,7 +434,7 @@ async def mcp_status_endpoint():
         "enabled": settings.MCP_ENABLED,
         "sdk_available": _mcp_available,
         "mounted": _mcp_mounted,
-        "transport": settings.MCP_TRANSPORT,
+        "transport": _mounted_transport if _mcp_mounted else settings.MCP_TRANSPORT,
         "host": settings.MCP_HOST,
         "port": settings.MCP_PORT,
     }

@@ -42,6 +42,7 @@ const ROUTE_TO_GROUP: Record<string, string> = {
   'recall': 'grp-engine',
   'graph-memory': 'grp-engine',
   'hybrid-search': 'grp-engine',
+  'playground': 'grp-engine',
   'observability': 'grp-ops',
   'lifecycle': 'grp-ops',
   'system': 'grp-ops',
@@ -79,6 +80,7 @@ const menuItems = [
       { key: '/recall', icon: <SearchOutlined />, label: '自动召回' },
       { key: '/graph-memory', icon: <ShareAltOutlined />, label: '知识图谱' },
       { key: '/hybrid-search', icon: <SwapOutlined />, label: '混合搜索' },
+      { key: '/playground', icon: <ExperimentOutlined />, label: '记忆 Playground' },
     ],
   },
   {

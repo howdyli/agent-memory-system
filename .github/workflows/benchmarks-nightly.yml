@@ -1,0 +1,169 @@
+name: Benchmarks Nightly
+
+on:
+  schedule:
+    # 每天北京时间 03:00 运行（UTC 19:00）
+    - cron: "0 19 * * *"
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  nightly-benchmarks:
+    name: Nightly 全量基准
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    # PostgreSQL service container（用于后端一致性测试）
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ams_test
+          POSTGRES_PASSWORD: ams_test
+          POSTGRES_DB: ams_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ../sdk-python/
+          pip install freezegun
+
+      - name: Build TypeScript SDK
+        working-directory: sdk-typescript
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run lifecycle_quality suite
+        working-directory: backend
+        env:
+          REDIS_URL: "fakeredis://"
+        run: |
+          python -m app.benchmarks.runner run --suite lifecycle_quality \
+            --output results/nightly_lifecycle.json \
+            --report results/nightly_lifecycle.md
+
+      - name: Run backend_consistency suite (SQLite vs PostgreSQL)
+        working-directory: backend
+        env:
+          REDIS_URL: "fakeredis://"
+          DATABASE_URL: "sqlite:///agent_memory.db"
+          DATABASE_URL_B: "postgresql://ams_test:ams_test@localhost:5432/ams_test"
+          VECTOR_BACKEND: "chroma"
+          VECTOR_BACKEND_B: "chroma"
+        run: |
+          python -m app.benchmarks.runner run --suite backend_consistency \
+            --output results/nightly_consistency.json \
+            --report results/nightly_consistency.md
+
+      - name: Run SDK equivalence (Python + TypeScript)
+        working-directory: backend
+        env:
+          REDIS_URL: "fakeredis://"
+        run: |
+          # 启动后端
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          BACKEND_PID=$!
+          sleep 5
+
+          # 运行完整 SDK 等价性（含 TS）
+          python -c "
+          import sys, json
+          sys.path.insert(0, '.')
+          from app.benchmarks.equivalence.sdk_equivalence import SdkEquivalenceSuite
+          suite = SdkEquivalenceSuite(config={
+              'base_url': 'http://localhost:8000',
+              'user_id': 888,
+              'skip_ts': False,
+          })
+          result = suite.execute()
+          print(f'sdk_equivalence passed: {result.passed}')
+          print(f'metrics: {result.metrics}')
+
+          # 保存结果
+          data = {
+              'results': [{
+                  'suite_name': result.suite_name,
+                  'level': result.level,
+                  'metrics': result.metrics,
+                  'targets': result.targets,
+                  'passed': result.passed,
+                  'details': result.details[:10],
+              }]
+          }
+          with open('results/nightly_sdk_equiv.json', 'w') as f:
+              json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+
+          if not result.passed:
+              sys.exit(1)
+          "
+
+          # 关闭后端
+          kill $BACKEND_PID
+
+      - name: Generate combined nightly report
+        working-directory: backend
+        run: |
+          python -c "
+          import json, sys
+          sys.path.insert(0, '.')
+          from app.benchmarks.base import BenchmarkResult
+          from app.benchmarks.report import generate_combined_report
+
+          results = []
+          for f in ['results/nightly_lifecycle.json', 'results/nightly_consistency.json', 'results/nightly_sdk_equiv.json']:
+              try:
+                  with open(f) as fh:
+                      data = json.load(fh)
+                  for item in data.get('results', []):
+                      results.append(BenchmarkResult(
+                          suite_name=item['suite_name'],
+                          level=item['level'],
+                          metrics=item.get('metrics', {}),
+                          targets=item.get('targets', {}),
+                          passed=item.get('passed', False),
+                          details=item.get('details', []),
+                      ))
+              except FileNotFoundError:
+                  pass
+
+          report = generate_combined_report(results)
+          with open('results/nightly_report.md', 'w') as fh:
+              fh.write(report)
+          print(report)
+          "
+
+      - name: Upload nightly results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-benchmark-results
+          path: backend/results/
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::warning::Nightly 基准测试失败，请检查 results artifact"

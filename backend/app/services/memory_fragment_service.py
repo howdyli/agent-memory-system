@@ -549,7 +549,10 @@ def create_fragment(user_id: int,
                     ttl: Optional[int] = None,
                     importance_score: float = 0.5,
                     metadata: Optional[Dict[str, Any]] = None,
-                    workspace_id: Optional[int] = None) -> Dict[str, Any]:
+                    workspace_id: Optional[int] = None,
+                    agent_id: Optional[int] = None,
+                    scope: str = "shared",
+                    skip_contradiction: bool = False) -> Dict[str, Any]:
     """
     创建记忆片段（支持 TTL）
     
@@ -560,11 +563,17 @@ def create_fragment(user_id: int,
         ttl: 过期时间（秒），None 表示永久
         importance_score: 重要性评分（0.0 - 1.0）
         metadata: 附加元数据
+        agent_id: 所属 Agent ID（None 表示用户级记忆）
+        scope: 记忆作用域（shared=跨 Agent 共享 / private=仅所属 Agent 可见）
+        skip_contradiction: 跳过矛盾检测（巩固产物等场景避免 superseded 级联）
         
     Returns:
         创建结果（包含片段 ID）
     """
     try:
+        # scope 仅允许 shared/private，非法值回退 shared
+        if scope not in ("shared", "private"):
+            scope = "shared"
         _span = get_tracer().start_span("fragment.create")
         _span.set_attribute("user.id", user_id)
         _span.set_attribute("fragment.type", fragment_type)
@@ -583,15 +592,15 @@ def create_fragment(user_id: int,
         
         # 插入记忆片段（vector_synced 默认为 0）
         fragment_id = db.execute('''
-            INSERT INTO memory_fragments (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at, vector_synced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-        ''', (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at))
+            INSERT INTO memory_fragments (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at, extra_data, vector_synced, agent_id, scope)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        ''', (user_id, workspace_id, fragment_type, content, ttl, importance_score, expires_at, meta_json, agent_id, scope))
 
         # 同一事务内写入 outbox（保证 SQLite 业务数据和 outbox 记录原子化）
         db.execute('''
-            INSERT INTO vector_outbox (fragment_id, user_id, workspace_id, fragment_type, content, importance_score, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (fragment_id, user_id, str(workspace_id) if workspace_id is not None else "", fragment_type, content, importance_score, expires_at or ""))
+            INSERT INTO vector_outbox (fragment_id, user_id, workspace_id, fragment_type, content, importance_score, expires_at, agent_id, scope)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (fragment_id, user_id, str(workspace_id) if workspace_id is not None else "", fragment_type, content, importance_score, expires_at or "", agent_id, scope))
 
         # 尝试立即写入向量数据库（乐观执行）
         vector_synced = False
@@ -608,6 +617,8 @@ def create_fragment(user_id: int,
                         "importance_score": str(importance_score),
                         "expires_at": expires_at or "",
                         "vector_synced": "1",
+                        "agent_id": str(agent_id) if agent_id is not None else "",
+                        "scope": scope,
                     }
                 )
                 vector_synced = True
@@ -632,16 +643,17 @@ def create_fragment(user_id: int,
 
         # 矛盾检测：新记忆可能与已有记忆冲突（R-05），非阻塞执行
         contradiction_result = None
-        try:
-            from app.services.contradiction_service import detect_contradiction
-            contradiction_result = detect_contradiction(
-                user_id=user_id,
-                new_content=content,
-                new_fragment_id=fragment_id,
-                workspace_id=workspace_id,
-            )
-        except Exception as e:
-            logger.warning(f"⚠️  矛盾检测失败（不影响记忆创建）: {e}")
+        if not skip_contradiction:
+            try:
+                from app.services.contradiction_service import detect_contradiction
+                contradiction_result = detect_contradiction(
+                    user_id=user_id,
+                    new_content=content,
+                    new_fragment_id=fragment_id,
+                    workspace_id=workspace_id,
+                )
+            except Exception as e:
+                logger.warning(f"⚠️  矛盾检测失败（不影响记忆创建）: {e}")
 
         result = {
             "success": True,
@@ -651,6 +663,7 @@ def create_fragment(user_id: int,
             "ttl": ttl,
             "expires_at": expires_at,
             "importance_score": importance_score,
+            "metadata": metadata or {},
             "message": f"Fragment created successfully"
         }
         if contradiction_result and contradiction_result.get("superseded_ids"):
@@ -672,6 +685,15 @@ def create_fragment(user_id: int,
     finally:
         if '_span' in locals():
             _span.end()
+
+
+def _attach_metadata(fragment: Dict[str, Any]) -> None:
+    """把 extra_data JSON 列解析为 metadata 字段（解析失败/缺列时为空 dict）"""
+    raw = fragment.get("extra_data")
+    try:
+        fragment["metadata"] = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        fragment["metadata"] = {}
 
 
 def get_fragment(user_id: int, fragment_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
@@ -707,6 +729,7 @@ def get_fragment(user_id: int, fragment_id: int, workspace_id: Optional[int] = N
             }
         
         fragment = dict(rows[0])
+        _attach_metadata(fragment)
         
         # 检查是否过期
         if fragment.get("expires_at"):
@@ -934,6 +957,8 @@ def list_fragments(user_id: int,
             )
         
         fragments = [dict(row) for row in rows] if rows else []
+        for frag in fragments:
+            _attach_metadata(frag)
         total = count_rows[0]["total"] if count_rows else 0
         
         return {
@@ -1046,11 +1071,60 @@ def cleanup_expired_fragments(user_id: Optional[int] = None, workspace_id: Optio
 # Task 14: 语义化存储（Vector Embeddings）
 # ============================================================
 
+def _fragment_visible_to_agent(fragment: Dict[str, Any], agent_id: Optional[int]) -> bool:
+    """判断记忆片段对指定 Agent 是否可见（agent_id=None 时不过滤，行为与现状一致）。
+
+    规则：scope 为 NULL/shared 的记忆全局可见；private 记忆仅所属 Agent 可见。
+    """
+    if agent_id is None:
+        return True
+    scope = fragment.get("scope")
+    if scope is None or scope == "shared":
+        return True
+    return scope == "private" and fragment.get("agent_id") == agent_id
+
+
+def apply_agent_scope_filter(memories: List[Dict[str, Any]],
+                             user_id: int,
+                             agent_id: Optional[int]) -> List[Dict[str, Any]]:
+    """对召回结果列表应用 Agent 作用域过滤（结果层后置过滤）。
+
+    memories 元素需含 id 字段；若元素未携带 scope/agent_id，则回查 SQLite 补全。
+    agent_id=None 时直接返回原列表（零行为变化）。
+    """
+    if agent_id is None or not memories:
+        return memories
+    try:
+        # 回查缺少 scope 信息的片段
+        missing_ids = [m.get("id") for m in memories if "scope" not in m and m.get("id") is not None]
+        scope_map: Dict[int, Dict[str, Any]] = {}
+        if missing_ids:
+            db = get_db_client()
+            placeholders = ",".join(["?"] * len(missing_ids))
+            rows = db.execute(
+                f'SELECT id, scope, agent_id FROM memory_fragments WHERE user_id = ? AND id IN ({placeholders})',
+                tuple([user_id] + missing_ids)
+            )
+            for row in rows or []:
+                rd = dict(row)
+                scope_map[rd["id"]] = rd
+        filtered = []
+        for mem in memories:
+            info = mem if "scope" in mem else scope_map.get(mem.get("id"), {})
+            if _fragment_visible_to_agent(info, agent_id):
+                filtered.append(mem)
+        return filtered
+    except Exception as e:
+        logger.warning(f"⚠️  Agent 作用域过滤失败（降级为仅返回 shared）: {e}")
+        return [m for m in memories if m.get("scope") in (None, "shared")]
+
+
 def search_fragments_by_semantic(user_id: int,
                                  query: str,
                                  top_k: int = 5,
                                  threshold: float = 0.3,
-                                 workspace_id: Optional[int] = None) -> Dict[str, Any]:
+                                 workspace_id: Optional[int] = None,
+                                 agent_id: Optional[int] = None) -> Dict[str, Any]:
     """
     语义搜索记忆片段（基于向量相似性）
     
@@ -1059,6 +1133,7 @@ def search_fragments_by_semantic(user_id: int,
         query: 查询文本
         top_k: 返回 Top-K 结果
         threshold: 相似性阈值（低于此值不返回）
+        agent_id: 调用方 Agent ID（传入时按 scope 规则过滤 private 记忆）
         
     Returns:
         搜索结果
@@ -1112,6 +1187,9 @@ def search_fragments_by_semantic(user_id: int,
                     )
                     if rows:
                         fragment = dict(rows[0])
+                        # Agent 作用域过滤：private 记忆仅所属 Agent 可见
+                        if not _fragment_visible_to_agent(fragment, agent_id):
+                            continue
                         fragment["similarity"] = similarity
                         fragment["vector_document"] = r.get("document", "")
                         filtered.append(fragment)
@@ -1196,6 +1274,8 @@ def process_vector_outbox(limit: int = 50) -> Dict[str, Any]:
                         "expires_at": row_dict.get("expires_at") or "",
                         "vector_synced": "1",
                         "outbox_repaired": "1",
+                        "agent_id": str(row_dict.get("agent_id")) if row_dict.get("agent_id") is not None else "",
+                        "scope": row_dict.get("scope") or "shared",
                     }
                 )
                 # 写入成功：标记 vector_synced=1 并删除 outbox 记录

@@ -43,6 +43,17 @@ def _extract_statement_type(sql: str) -> Optional[str]:
     return None
 
 
+def _strip_string_literals(sql: str) -> str:
+    """移除字符串字面值内容，避免模式检查时误判字符串中的特殊字符。
+
+    将单引号和双引号中的内容替换为空引号，保留引号本身以便引号匹配检查仍然有效。
+    支持 SQL 转义引号（连续两个单引号 '' 表示一个字面引号）。
+    """
+    result = re.sub(r"'(?:[^']|'')*'", "''", sql)
+    result = re.sub(r'"(?:[^"]|"")*"', '""', result)
+    return result
+
+
 def validate_sql_safety(
     sql: str,
     allowed_statements: Optional[set] = None,
@@ -92,9 +103,10 @@ def validate_sql_safety(
         if word in FORBIDDEN_KEYWORDS:
             return False, f"SQL 包含禁止关键字: {word}"
 
-    # 4. 禁止的特殊模式检查
+    # 4. 禁止的特殊模式检查（先剥离字符串字面值内容，避免误判字符串中的 ; 和 -- 等）
+    sql_for_patterns = _strip_string_literals(sql_upper)
     for pattern in FORBIDDEN_PATTERNS:
-        if re.search(pattern, sql_upper):
+        if re.search(pattern, sql_for_patterns):
             return False, f"SQL 包含禁止模式: {pattern}"
 
     # 5. 引号匹配检查（防止字符串截断注入）

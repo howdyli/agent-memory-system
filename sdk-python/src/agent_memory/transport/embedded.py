@@ -87,6 +87,9 @@ class EmbeddedTransport(Transport):
         wid = self.workspace_id
         p = params or {}
 
+        # 规范化路径：去除尾部斜杠（保留根路径 "/"）
+        path = path.rstrip("/") or "/"
+
         # ---- Variables ----
         if path == "/memory/variables" and method == "POST":
             return var_svc.set_memory_variable(
@@ -112,7 +115,7 @@ class EmbeddedTransport(Transport):
             )
 
         # ---- Fragments ----
-        if path == "/memory/fragments/" and method == "POST":
+        if path == "/memory/fragments" and method == "POST":
             return frag_svc.create_fragment(
                 user_id=uid,
                 fragment_type=json.get("fragment_type", "fact"),
@@ -121,7 +124,7 @@ class EmbeddedTransport(Transport):
                 ttl=json.get("ttl"),
                 workspace_id=wid,
             )
-        if path == "/memory/fragments/" and method == "GET":
+        if path == "/memory/fragments" and method == "GET":
             return frag_svc.list_fragments(
                 user_id=uid,
                 fragment_type=p.get("type"),
@@ -151,13 +154,39 @@ class EmbeddedTransport(Transport):
             )
 
         # ---- Tables ----
-        if path == "/memory/tables/" and method == "POST":
+        if path == "/memory/tables" and method == "POST":
             return tbl_svc.create_memory_table(
                 user_id=uid, table_name=json["table_name"],
                 fields=json["fields"], workspace_id=wid,
             )
-        if path == "/memory/tables/" and method == "GET":
+        if path == "/memory/tables" and method == "GET":
             return tbl_svc.list_tables(user_id=uid, workspace_id=wid)
+        if path.startswith("/memory/tables/") and path.endswith("/records"):
+            table_name = path.split("/")[3]
+            if method == "POST":
+                return tbl_svc.add_record(
+                    user_id=uid, table_name=table_name,
+                    record=json["record"], workspace_id=wid,
+                )
+            if method == "GET":
+                return tbl_svc.query_records(user_id=uid, table_name=table_name, workspace_id=wid)
+            if method == "PUT":
+                return tbl_svc.update_record(
+                    user_id=uid, table_name=table_name,
+                    record_id=int(p["record_id"]),
+                    updates=json["updates"], workspace_id=wid,
+                )
+            if method == "DELETE":
+                return tbl_svc.delete_record(
+                    user_id=uid, table_name=table_name,
+                    record_id=int(p["record_id"]), workspace_id=wid,
+                )
+        if path.startswith("/memory/tables/") and path.endswith("/info") and method == "GET":
+            table_name = path.split("/")[3]
+            return tbl_svc.get_table_info(user_id=uid, table_name=table_name, workspace_id=wid)
+        if path.startswith("/memory/tables/") and method == "DELETE":
+            table_name = path.split("/")[-1]
+            return tbl_svc.drop_table(user_id=uid, table_name=table_name, workspace_id=wid)
 
         # ---- Extraction ----
         if path == "/memory/extraction/context" and method == "GET":
@@ -167,10 +196,11 @@ class EmbeddedTransport(Transport):
             return {"context": context_str, "success": True}
 
         # ---- Recall ----
-        if path == "/memory/recall/" and method == "POST":
+        if path == "/memory/recall" and method == "POST":
             return recall_svc.auto_recall(
                 user_id=uid, query=json["query"],
                 workspace_id=wid,
+                top_k=json.get("top_k"),
             )
         if path == "/memory/recall/search" and method == "POST":
             return recall_svc.search_relevant_memories(

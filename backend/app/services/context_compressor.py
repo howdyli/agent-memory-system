@@ -30,7 +30,22 @@ from app.services.memory_lifecycle_service import (
     get_half_life,
 )
 from app.services.memory_observability_service import record_trace_event, update_recall_metrics
+from app.core.circuit_breaker import CircuitBreaker
+from app.core.metrics import (
+    compression_circuit_breaker_state,
+    compression_budget_utilization,
+    compression_dedup_savings,
+    compression_fallback_used,
+)
 import time as _ctx_time_obs
+
+# 压缩引擎专用断路器（全局单例，failure_threshold=3, recovery=60s）
+_compression_circuit_breaker = CircuitBreaker(
+    name="compression_llm",
+    failure_threshold=3,
+    recovery_timeout=60.0,
+    half_open_max_calls=1,
+)
 
 # ============================================================
 # 默认配置
@@ -476,7 +491,12 @@ class ConversationManager:
 
     def _generate_compression_summary(self, user_id: int, conversation_text: str) -> str:
         """
-        使用 LLM 生成对话摘要。
+        使用 LLM 生成对话摘要（断路器保护）。
+
+        断路器策略：
+        - 连续失败 3 次后熔断，直接走 fallback（< 50ms）
+        - 60s 后自动恢复试探
+        - 单次 LLM 调用 timeout=10s
 
         Args:
             user_id: 用户 ID
@@ -485,8 +505,19 @@ class ConversationManager:
         Returns:
             生成的摘要文本
         """
+        breaker = _compression_circuit_breaker
+        # 更新 Prometheus 状态
+        state_map = {"closed": 0, "open": 1, "half_open": 2}
+        compression_circuit_breaker_state.set(state_map.get(breaker.state, 0))
+
+        if not breaker.allow():
+            logger.info("压缩断路器 OPEN，直接使用 fallback 摘要")
+            compression_fallback_used.inc()
+            return self._fallback_summary(conversation_text)
+
         try:
             from app.services.llm_backend_service import llm_chat
+            import concurrent.futures
 
             summary_prompt = (
                 "请将以下对话历史压缩为一段简洁的中文摘要（不超过 200 字）。\n"
@@ -501,45 +532,106 @@ class ConversationManager:
                 "摘要："
             )
 
-            result = llm_chat(
-                user_id=user_id,
-                messages=[{"role": "user", "content": summary_prompt}],
-                temperature=0.3,
-                max_tokens=500,
-            )
+            # 带超时的 LLM 调用（默认 10s）
+            call_timeout = self.config.get("compression_llm_timeout", 10.0)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    llm_chat,
+                    user_id=user_id,
+                    messages=[{"role": "user", "content": summary_prompt}],
+                    temperature=0.3,
+                    max_tokens=500,
+                )
+                try:
+                    result = future.result(timeout=call_timeout)
+                except concurrent.futures.TimeoutError:
+                    breaker.record_failure()
+                    logger.warning(f"LLM 摘要生成超时 ({call_timeout}s)，回退到规则摘要")
+                    compression_fallback_used.inc()
+                    return self._fallback_summary(conversation_text)
 
             if result.get("success") and result.get("content"):
                 summary = result["content"].strip()
-                # 限制摘要长度
                 if len(summary) > 500:
                     summary = summary[:497] + "..."
+                breaker.record_success()
                 return summary
+            else:
+                breaker.record_failure()
 
         except Exception as e:
+            breaker.record_failure()
             logger.warning(f"LLM 摘要生成失败，回退到规则摘要: {e}")
 
-        # 回退：提取关键信息
+        # 回退：增强规则摘要
+        compression_fallback_used.inc()
         return self._fallback_summary(conversation_text)
 
     def _fallback_summary(self, conversation_text: str) -> str:
-        """规则回退摘要（当 LLM 不可用时）"""
+        """增强规则回退摘要（当 LLM 不可用时）。
+
+        策略：
+        1. 提取命名实体（复用 EntityGraphTraverser）
+        2. 提取关键事实（匹配"是/在/喜欢/计划"等模式）
+        3. 统计对话轮次
+        4. 拼接为结构化摘要：[实体] + [关键事实] + [话题概要]
+        限制输出 ≤ 300 字符
+        """
         lines = conversation_text.strip().split("\n")
-        summary_parts = []
         user_messages = []
+        assistant_messages = []
 
         for line in lines:
             if line.startswith("用户:"):
                 content = line[3:].strip()
                 if content:
                     user_messages.append(content)
+            elif line.startswith("助手:"):
+                content = line[3:].strip()
+                if content:
+                    assistant_messages.append(content)
 
-        total_turns = len([l for l in lines if l.startswith("用户:")])
-        if user_messages:
-            # 提取最后几条消息的概要
-            recent = "；".join(user_messages[-3:])
-            summary_parts.append(f"对话共 {total_turns} 轮")
+        total_turns = len(user_messages)
+        summary_parts = []
 
-        return "；".join(summary_parts) if summary_parts else "(对话历史)"
+        # 1. 提取命名实体
+        all_text = " ".join(user_messages)
+        entities = EntityGraphTraverser.extract_entities(all_text)
+        if entities:
+            top_entities = entities[:5]
+            summary_parts.append(f"涉及: {', '.join(top_entities)}")
+
+        # 2. 提取关键事实（模式匹配）
+        facts = []
+        fact_patterns = [
+            (r'(?:我|用户)(?:是|叫|在|住在)(.{2,20})', '身份'),
+            (r'(?:我|用户)(?:喜欢|偏好|倾向)(.{2,20})', '偏好'),
+            (r'(?:我|用户)(?:计划|打算|准备|要)(.{2,20})', '计划'),
+            (r'(?:已经|完成了|做好了)(.{2,15})', '完成'),
+        ]
+        for msg in user_messages:
+            for pattern, category in fact_patterns:
+                matches = re.findall(pattern, msg)
+                for m in matches[:1]:  # 每模式每消息最多取1个
+                    facts.append(f"{category}: {m.strip()[:20]}")
+                    if len(facts) >= 4:
+                        break
+            if len(facts) >= 4:
+                break
+
+        if facts:
+            summary_parts.append("；".join(facts))
+
+        # 3. 对话轮次和最近话题
+        if total_turns > 0:
+            recent_topics = "；".join(user_messages[-2:])[:60]
+            summary_parts.append(f"共 {total_turns} 轮，最近: {recent_topics}")
+
+        result = "。".join(summary_parts) if summary_parts else "(对话历史)"
+        # 限制 300 字符
+        if len(result) > 300:
+            result = result[:297] + "..."
+        return result
 
     def build_compressed_context(self, session_id: str) -> str:
         """
@@ -783,16 +875,21 @@ class MemoryValueScorer:
         memories: List[Dict[str, Any]],
         query: str,
         budget_tokens: int,
+        strategy: str = "auto",
     ) -> List[Dict[str, Any]]:
         """
-        在 Token 预算内贪心选择最优记忆组合。
+        在 Token 预算内选择最优记忆组合。
 
-        使用价值/成本比进行排序，优先选择性价比最高的记忆。
+        策略：
+        - "auto"：候选数 ≤ 20 时用 DP 背包，> 20 用贪心（性能保底）
+        - "knapsack"：强制使用 DP 背包
+        - "greedy"：强制使用贪心
 
         Args:
             memories: 候选记忆列表
             query: 用户查询
             budget_tokens: Token 预算上限
+            strategy: 策略选择 ("auto" | "knapsack" | "greedy")
 
         Returns:
             选中的记忆列表
@@ -800,32 +897,91 @@ class MemoryValueScorer:
         if not memories or budget_tokens <= 0:
             return []
 
-        # 计算每条记忆的价值密度
+        # 计算每条记忆的价值和成本
         scored = []
         for m in memories:
-            density = MemoryValueScorer.value_per_token(m, query)
+            value = MemoryValueScorer.score_memory_value(m, query)
             cost = estimate_tokens(m.get("content", "")) + 10
-            scored.append((density, cost, m))
+            scored.append((value, cost, m))
 
-        # 按价值密度降序排列（贪心）
-        scored.sort(key=lambda x: x[0], reverse=True)
+        # 策略选择
+        use_knapsack = (
+            strategy == "knapsack"
+            or (strategy == "auto" and len(scored) <= 20)
+        )
 
+        if use_knapsack:
+            selected = MemoryValueScorer._knapsack_select(scored, budget_tokens)
+        else:
+            selected = MemoryValueScorer._greedy_select(scored, budget_tokens)
+
+        logger.debug(
+            f"预算选择[{('knapsack' if use_knapsack else 'greedy')}]: "
+            f"{len(memories)} 候选 → {len(selected)} 入选"
+        )
+
+        return selected
+
+    @staticmethod
+    def _greedy_select(
+        scored: List[tuple], budget_tokens: int
+    ) -> List[Dict[str, Any]]:
+        """贪心策略：按价值密度降序选择。"""
+        scored.sort(key=lambda x: (x[0] / max(1, x[1])), reverse=True)
         selected = []
         used_tokens = 0
-
-        for density, cost, memory in scored:
+        for value, cost, memory in scored:
             if used_tokens + cost <= budget_tokens:
                 selected.append(memory)
                 used_tokens += cost
-            else:
-                # 预算不足时跳过
-                continue
+        return selected
 
-        logger.debug(
-            f"预算选择: {len(memories)} 候选 → {len(selected)} 入选, "
-            f"使用 {used_tokens}/{budget_tokens} tokens"
-        )
+    @staticmethod
+    def _knapsack_select(
+        scored: List[tuple], budget_tokens: int
+    ) -> List[Dict[str, Any]]:
+        """
+        0-1 背包 DP 策略：在预算约束下最大化总价值。
 
+        为性能考虑，将 budget 量化为 10-token 粒度（减少 DP 表大小）。
+        """
+        n = len(scored)
+        # 量化粒度（每 10 token 为 1 单位）
+        granularity = 10
+        capacity = budget_tokens // granularity
+
+        if capacity <= 0:
+            return []
+
+        # 准备量化后的数据
+        items = []
+        for value, cost, memory in scored:
+            q_cost = max(1, cost // granularity)
+            # 价值乘 1000 转为整数避免浮点精度问题
+            q_value = int(value * 1000)
+            items.append((q_value, q_cost, memory))
+
+        # DP
+        dp = [0] * (capacity + 1)
+        # 回溯用
+        keep = [[False] * (capacity + 1) for _ in range(n)]
+
+        for i in range(n):
+            q_value, q_cost, _ = items[i]
+            for w in range(capacity, q_cost - 1, -1):
+                if dp[w - q_cost] + q_value > dp[w]:
+                    dp[w] = dp[w - q_cost] + q_value
+                    keep[i][w] = True
+
+        # 回溯找出选中的物品
+        selected = []
+        w = capacity
+        for i in range(n - 1, -1, -1):
+            if keep[i][w]:
+                selected.append(items[i][2])  # memory dict
+                w -= items[i][1]  # q_cost
+
+        selected.reverse()
         return selected
 
 
@@ -942,6 +1098,7 @@ class EntityGraphTraverser:
         entities: List[str],
         top_k: int = 5,
         threshold: float = 0.3,
+        workspace_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         基于实体搜索关联记忆（模拟图谱遍历）。
@@ -954,6 +1111,7 @@ class EntityGraphTraverser:
             entities: 实体名称列表
             top_k: 每实体召回数量
             threshold: 相似度阈值
+            workspace_id: workspace 过滤（图谱数据按 workspace 隔离，不传则查 NULL 分区）
 
         Returns:
             关联记忆列表
@@ -963,7 +1121,7 @@ class EntityGraphTraverser:
 
         # 1. 优先尝试 GraphMemory 结构化数据
         graph_results = EntityGraphTraverser._use_graph_memory(
-            user_id=user_id, entities=entities, top_k=top_k
+            user_id=user_id, entities=entities, top_k=top_k, workspace_id=workspace_id
         )
         if graph_results:
             return graph_results
@@ -999,6 +1157,7 @@ class EntityGraphTraverser:
         user_id: int,
         entities: List[str],
         top_k: int = 5,
+        workspace_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         使用 GraphMemory 模块的结构化图数据查询关联记忆。
@@ -1034,6 +1193,7 @@ class EntityGraphTraverser:
                         entity_name=entity,
                         entity_type="person",
                         depth=1,
+                        workspace_id=workspace_id,
                     )
                     if neighbors.get("success"):
                         for nb in neighbors.get("neighbors", []):
@@ -1055,7 +1215,7 @@ class EntityGraphTraverser:
 
                     # 也搜索实体本身
                     search_result = search_entities(
-                        user_id=user_id, query=entity, limit=1
+                        user_id=user_id, query=entity, limit=1, workspace_id=workspace_id
                     )
                     if search_result.get("success") and search_result.get("entities"):
                         for e in search_result["entities"]:
@@ -1240,7 +1400,7 @@ class ContextCompressor:
         budget: int,
     ) -> str:
         """
-        构建记忆注入上下文（三层结构，受预算控制）。
+        构建记忆注入上下文（三层结构，受预算控制，跨层去重）。
 
         Args:
             user_id: 用户 ID
@@ -1251,6 +1411,7 @@ class ContextCompressor:
             记忆上下文字符串
         """
         memory_parts = []
+        selected_ids: set = set()  # 跨层去重集合
 
         # 各层级预算分配
         l1_budget = min(self.config["level1_tokens"], budget)
@@ -1265,18 +1426,21 @@ class ContextCompressor:
         if l1_result:
             memory_parts.append(l1_result)
 
-        # --- Level 2: 高相关语义记忆 ---
+        # --- Level 2: 高相关语义记忆（排除 L1 ID） ---
         l2_actual_budget = max(0, budget - estimate_tokens(l1_result or ""))
+        l2_result = ""
         if l2_actual_budget > 100:
-            l2_result = self._inject_level2(
+            l2_result, l2_ids = self._inject_level2(
                 user_id=user_id,
                 query=user_query,
                 budget=l2_actual_budget,
+                exclude_ids=selected_ids,
             )
+            selected_ids.update(l2_ids)
             if l2_result:
                 memory_parts.append(l2_result)
 
-        # --- Level 3: 关联实体扩展 ---
+        # --- Level 3: 关联实体扩展（排除 L1+L2 ID） ---
         l3_actual_budget = max(0, budget - estimate_tokens(
             (l1_result or "") + (l2_result or "")
         ))
@@ -1285,9 +1449,16 @@ class ContextCompressor:
                 user_id=user_id,
                 query=user_query,
                 budget=l3_actual_budget,
+                exclude_ids=selected_ids,
             )
             if l3_result:
                 memory_parts.append(l3_result)
+
+        # 记录预算利用率
+        total_used = estimate_tokens("\n\n".join(memory_parts))
+        if budget > 0:
+            utilization = min(1.0, total_used / budget)
+            compression_budget_utilization.observe(utilization)
 
         return "\n\n".join(memory_parts)
 
@@ -1439,50 +1610,62 @@ class ContextCompressor:
     # Level 2: 语义匹配记忆
     # ----------------------------------------------------------
 
-    def _inject_level2(self, user_id: int, query: str, budget: int) -> str:
+    def _inject_level2(self, user_id: int, query: str, budget: int, exclude_ids: set = None) -> tuple:
         """
-        Level 2：注入高相关语义记忆。
-
-        委托给 RecallEngine 统一召回。
+        Level 2：注入高相关语义记忆（支持跨层去重）。
 
         Args:
             user_id: 用户 ID
             query: 用户查询
             budget: Token 预算
+            exclude_ids: 已选记忆 ID 集合（跨层去重）
 
         Returns:
-            格式化的语义记忆上下文字符串
+            (context_text, selected_ids) 元组
         """
         try:
             result = self.recall_engine.recall(
                 user_id=user_id,
                 query=query,
                 budget_tokens=budget,
+                exclude_ids=exclude_ids,
             )
 
             if not result.memories:
-                return ""
+                return "", set()
 
-            # 回填 _last_memories_used（供 build_context_with_details 使用）
+            # 收集选中的 fragment IDs
+            l2_ids = {mem.get("id") for mem in result.memories if mem.get("id")}
+
+            # 记录去重节省
+            if exclude_ids:
+                original_count = result.total_candidates
+                dedup_count = len(exclude_ids)
+                if dedup_count > 0:
+                    saved = dedup_count * 30  # 估算平均每条节省 30 tokens
+                    compression_dedup_savings.inc(saved)
+
+            # 回填 _last_memories_used
             if hasattr(self, '_last_memories_used') and isinstance(self._last_memories_used, list):
                 details = self.recall_engine.extract_memory_details(result.memories)
                 self._last_memories_used.extend(details)
 
-            return result.context_text
+            return result.context_text, l2_ids
 
         except Exception as e:
             logger.warning(f"Level 2 语义注入失败: {e}")
-            return ""
+            return "", set()
 
     # ----------------------------------------------------------
     # Level 3: 实体扩展
     # ----------------------------------------------------------
 
-    def _inject_level3(self, user_id: int, query: str, budget: int) -> str:
-        """Level 3：注入关联实体扩展记忆。委托给 RecallEngine。"""
+    def _inject_level3(self, user_id: int, query: str, budget: int, exclude_ids: set = None) -> str:
+        """Level 3：注入关联实体扩展记忆（支持跨层去重）。"""
         try:
             result = self.recall_engine.recall_with_entities(
                 user_id=user_id, query=query, budget_tokens=budget,
+                exclude_ids=exclude_ids,
             )
             return result.context_text if result.memories else ""
         except Exception as e:

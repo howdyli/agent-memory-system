@@ -3,7 +3,7 @@
 """
 import logging
 import fastapi as _fastapi
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 from typing import Optional, Any, Dict, List
 
@@ -97,7 +97,7 @@ class ExecuteSqlRequest(BaseModel):
 
 
 # API 路由
-@router.post("/")
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_table(
     request: CreateTableRequest,
     principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
@@ -132,7 +132,7 @@ async def create_table(
         raise AppException(str(e))
 
 
-@router.post("/{table_name}/records")
+@router.post("/{table_name}/records", status_code=status.HTTP_201_CREATED)
 async def add_record_api(
     table_name: str,
     request: AddRecordRequest,
@@ -342,10 +342,7 @@ async def parse_natural_language(
                 "message": "Natural language parsed successfully"
             }
         else:
-            return {
-                "success": False,
-                "message": "Failed to parse natural language"
-            }
+            raise AppException("Failed to parse natural language")
             
     except Exception as e:
         logger.error(f"✗ 解析自然语言失败: {e}")

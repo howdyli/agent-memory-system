@@ -19,7 +19,7 @@ class FragmentsAPI:
         ttl: Optional[int] = None,
     ) -> Dict[str, Any]:
         """创建一条语义记忆片段。"""
-        return self._t.request("POST", "/memory/fragments/", json={
+        return self._t.request("POST", "/memory/fragments", json={
             "fragment_type": fragment_type,
             "content": content,
             "importance_score": importance_score,
@@ -59,7 +59,7 @@ class FragmentsAPI:
         params = {}
         if fragment_type:
             params["type"] = fragment_type
-        result = self._t.request("GET", "/memory/fragments/", params=params)
+        result = self._t.request("GET", "/memory/fragments", params=params)
         if isinstance(result, dict):
             return result.get("fragments", result.get("data", []))
         return result if isinstance(result, list) else []

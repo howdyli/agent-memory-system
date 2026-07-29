@@ -105,6 +105,9 @@ class MemoryFragment(Base):
     lifecycle_status: Mapped[Optional[str]] = mapped_column(Text, default="active")
     last_recalled_at: Mapped[Optional[datetime]] = mapped_column()
     cold_at: Mapped[Optional[datetime]] = mapped_column()
+    # P1: 跨 Agent 共享记忆作用域（db_client 通过 ALTER TABLE 追加）
+    agent_id: Mapped[Optional[int]] = mapped_column(Integer)
+    scope: Mapped[Optional[str]] = mapped_column(Text, default="shared")  # shared / private
 
 
 # ============================================================
@@ -465,6 +468,21 @@ class ApiKey(Base):
     created_at: Mapped[Optional[datetime]] = mapped_column(server_default=func.now())
 
 
+class Agent(Base):
+    """Agent 注册实体（P1）：轻量作用域标签，身份仍由 Principal 承担。"""
+    __tablename__ = "agents"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_agents_workspace_name"),
+        Index("idx_agents_workspace", "workspace_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    workspace_id: Mapped[Optional[int]] = mapped_column(ForeignKey("workspaces.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[Optional[datetime]] = mapped_column(server_default=func.now())
+
 # 供 Alembic env.py 与 Store 层引用的元数据对象
 metadata = Base.metadata
 
@@ -493,4 +511,6 @@ __all__ = [
     "Workspace",
     "WorkspaceMember",
     "ApiKey",
+    # P1 新增
+    "Agent",
 ]

@@ -24,7 +24,7 @@ import {
   ClearOutlined,
 } from '@ant-design/icons';
 import { agentApi } from '../services/api';
-import SchemaForm from '../components/SchemaForm';
+import SchemaForm, { type SchemaProperty } from '../components/SchemaForm';
 
 const { Text } = Typography;
 
@@ -33,7 +33,7 @@ interface ToolInfo {
   description: string;
   parameters: {
     type: string;
-    properties: Record<string, { type: string; description: string; enum?: string[]; items?: unknown; required?: string[] }>;
+    properties: Record<string, SchemaProperty>;
     required: string[];
   };
 }
@@ -313,7 +313,7 @@ export default function AgentToolsPage() {
               style={{ marginBottom: 16 }}
             />
 
-            <Divider orientation="left" style={{ fontSize: 13 }}>
+            <Divider style={{ fontSize: 13 }}>
               参数
             </Divider>
 
@@ -321,7 +321,7 @@ export default function AgentToolsPage() {
               <SchemaForm schema={activeTool.parameters} form={form} />
             </Form>
 
-            <Divider orientation="left" style={{ fontSize: 13 }}>
+            <Divider style={{ fontSize: 13 }}>
               执行结果
             </Divider>
 

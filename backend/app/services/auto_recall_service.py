@@ -341,7 +341,8 @@ def search_relevant_memories(user_id: int,
                              query: str,
                              top_k: int = 5,
                              threshold: float = 0.3,
-                             workspace_id: Optional[int] = None) -> Dict[str, Any]:
+                             workspace_id: Optional[int] = None,
+                             agent_id: Optional[int] = None) -> Dict[str, Any]:
     """
     检索与查询相关的记忆（Top-K 相关性检索）
     
@@ -352,6 +353,7 @@ def search_relevant_memories(user_id: int,
         query: 查询文本
         top_k: 返回 Top-K 结果
         threshold: 相关性阈值
+        agent_id: 调用方 Agent ID（传入时按 scope 规则过滤 private 记忆）
         
     Returns:
         检索结果
@@ -371,6 +373,10 @@ def search_relevant_memories(user_id: int,
 
         # 转为旧格式保持兼容
         top_memories = result.memories[:top_k]
+        # Agent 作用域过滤（agent_id=None 时行为不变）
+        if agent_id is not None:
+            from app.services.memory_fragment_service import apply_agent_scope_filter
+            top_memories = apply_agent_scope_filter(top_memories, user_id, agent_id)
         # 补充 relevance 字段（旧接口依赖）
         for mem in top_memories:
             if "relevance" not in mem:
@@ -577,19 +583,21 @@ def rank_memories_by_priority(memories: List[Dict[str, Any]],
 # 综合召回流程
 # ============================================================
 
-def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None) -> Dict[str, Any]:
+def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None, top_k: Optional[int] = None) -> Dict[str, Any]:
     """
     自动记忆召回完整流程
-    
+
     1. 检查是否启用
     2. 检索相关记忆
     3. 优先级排序
     4. 上下文注入
-    
+
     Args:
         user_id: 用户 ID
         query: 当前查询
-        
+        workspace_id: 工作区 ID
+        top_k: 返回 Top-K 结果（可选，覆盖配置默认值）
+
     Returns:
         召回结果
     """
@@ -603,7 +611,7 @@ def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None) ->
             span.set_attribute("workspace.id", workspace_id)
 
         config = get_recall_config(user_id)
-        
+
         if not config.get("enabled", True):
             return {
                 "success": True,
@@ -611,9 +619,9 @@ def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None) ->
                 "context": "",
                 "message": "Auto recall is disabled"
             }
-        
-        # 直接用 RecallEngine 统一召回
-        top_k = config.get("top_k", 5)
+
+        # 直接用 RecallEngine 统一召回（top_k 优先使用调用方传入值）
+        effective_top_k = top_k if top_k is not None else config.get("top_k", 5)
         max_length = config.get("max_context_length", 2000)
         context_format = config.get("context_format", "structured")
 
@@ -623,9 +631,10 @@ def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None) ->
             user_id=user_id,
             query=query,
             budget_tokens=max_length,
-            top_k=top_k,
+            top_k=effective_top_k,
             update_lifecycle=True,
             record_traces=True,
+            workspace_id=workspace_id,
         )
 
         top_memories = result.memories
@@ -653,7 +662,6 @@ def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None) ->
             "context": context,
             "memories": top_memories,
             "memory_count": len(top_memories),
-            "config": config,
             "query": query
         }
         

@@ -95,7 +95,8 @@ async def process_input(
         result = process_user_input(
             user_id=principal.user_id,
             user_input=request.user_input,
-            session_id=request.session_id
+            session_id=request.session_id,
+            workspace_id=principal.workspace_id,
         )
         
         return result
@@ -128,7 +129,8 @@ async def inject_prompt(
             user_id=principal.user_id,
             prompt_template=request.prompt_template,
             session_id=request.session_id,
-            custom_variables=request.custom_variables
+            custom_variables=request.custom_variables,
+            workspace_id=principal.workspace_id,
         )
         
         return {
@@ -165,7 +167,8 @@ async def generate_response(
             user_id=principal.user_id,
             response_template=request.response_template,
             session_id=request.session_id,
-            context=request.context
+            context=request.context,
+            workspace_id=principal.workspace_id,
         )
         
         return {
@@ -201,7 +204,8 @@ async def batch_extract(
         result = batch_extract_from_conversation(
             user_id=principal.user_id,
             conversation_history=request.conversation_history,
-            session_id=request.session_id
+            session_id=request.session_id,
+            workspace_id=principal.workspace_id,
         )
         
         return result
@@ -232,7 +236,8 @@ async def get_context(
     try:
         context_str = get_user_context_for_llm(
             user_id=principal.user_id,
-            session_id=session_id
+            session_id=session_id,
+            workspace_id=principal.workspace_id,
         )
         
         return {
@@ -267,12 +272,16 @@ async def get_memory_summary(
         # 获取用户上下文
         context_str = get_user_context_for_llm(
             user_id=principal.user_id,
-            session_id=None
+            session_id=None,
+            workspace_id=principal.workspace_id,
         )
-        
+
         # 获取记忆变量
         from app.services.memory_variable_service import list_memory_variables
-        variables = list_memory_variables(user_id=principal.user_id)
+        variables = list_memory_variables(
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id,
+        )
         
         # 构建摘要
         summary_parts = []
@@ -492,14 +501,14 @@ async def preview_extraction(
             conversation=conversation,
             auto_store=False,
             session_id=request.session_id,
+            workspace_id=principal.workspace_id,
         )
 
         if not result.get("success"):
-            return {
-                "success": False,
-                "error": result.get("error", "抽取失败"),
-                "fallback_available": True,
-            }
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "抽取失败"),
+            )
 
         return {
             "success": True,
@@ -519,11 +528,10 @@ async def preview_extraction(
         raise
     except Exception as e:
         logger.error(f"✗ 预览抽取失败: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "fallback_available": True,
-        }
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
 
 
 # 测试函数

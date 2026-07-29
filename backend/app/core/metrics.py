@@ -144,6 +144,44 @@ try:
         buckets=(0, 1, 5, 10, 20, 50),
     )
 
+    # ============================================================
+    # W1: 压缩引擎断路器与预算指标
+    # ============================================================
+    compression_circuit_breaker_state = Gauge(
+        "agent_memory_compression_circuit_breaker_state",
+        "Compression circuit breaker state (0=closed, 1=open, 2=half_open)",
+    )
+
+    compression_budget_utilization = Histogram(
+        "agent_memory_budget_utilization_ratio",
+        "Memory budget utilization ratio (used/total)",
+        buckets=(0.1, 0.2, 0.4, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0),
+    )
+
+    compression_dedup_savings = Counter(
+        "agent_memory_dedup_savings_tokens_total",
+        "Tokens saved by cross-layer deduplication",
+    )
+
+    compression_fallback_used = Counter(
+        "agent_memory_compression_fallback_total",
+        "Times fallback summary was used instead of LLM",
+    )
+
+    # ============================================================
+    # W4: Benchmark 回归与 Playground 指标
+    # ============================================================
+    benchmark_regression_detected = Gauge(
+        "agent_memory_benchmark_regression_detected",
+        "Benchmark regression detected in latest comparison (0=no, 1=yes)",
+    )
+
+    playground_requests_total = Counter(
+        "agent_memory_playground_requests_total",
+        "Playground simulation requests",
+        ["simulator"],  # injection|recall|decay
+    )
+
     METRICS_ENABLED = True
 
 except ImportError:
@@ -177,3 +215,9 @@ except ImportError:
     context_compression_latency_seconds = _Stub()
     hybrid_search_latency_seconds = _Stub()
     hybrid_search_result_count = _Stub()
+    compression_circuit_breaker_state = _Stub()
+    compression_budget_utilization = _Stub()
+    compression_dedup_savings = _Stub()
+    compression_fallback_used = _Stub()
+    benchmark_regression_detected = _Stub()
+    playground_requests_total = _Stub()

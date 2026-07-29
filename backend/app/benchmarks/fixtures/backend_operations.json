@@ -1,0 +1,16 @@
+[
+  {"op": "set_variable", "args": {"key": "consistency_name", "value": "张三"}},
+  {"op": "set_variable", "args": {"key": "consistency_age", "value": 28}},
+  {"op": "set_variable", "args": {"key": "consistency_city", "value": "北京"}},
+  {"op": "get_variable", "args": {"key": "consistency_name"}},
+  {"op": "get_variable", "args": {"key": "consistency_age"}},
+  {"op": "list_variables", "args": {}},
+  {"op": "create_fragment", "args": {"content": "一致性测试片段：用户喜欢极简设计"}},
+  {"op": "create_fragment", "args": {"content": "用户在研究记忆系统架构"}},
+  {"op": "create_fragment", "args": {"content": "一致性测试：用户使用 Python 开发"}},
+  {"op": "create_fragment", "args": {"content": "用户偏好深色主题的编辑器"}},
+  {"op": "search_fragments", "args": {"query": "一致性测试"}},
+  {"op": "search_fragments", "args": {"query": "用户偏好"}},
+  {"op": "search_fragments", "args": {"query": "Python 开发"}},
+  {"op": "list_fragments", "args": {}}
+]

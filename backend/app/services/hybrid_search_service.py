@@ -312,8 +312,15 @@ def _tokenize_query(query: str) -> str:
     if not parts:
         return ""
 
+    # 移除 FTS5 特殊字符（? * " ( ) : ^ - 等），避免语法错误
+    import re as _re
+    cleaned = [_re.sub(r'[?*"():^\-]', '', p) for p in parts]
+    cleaned = [p for p in cleaned if p]  # 去除清理后为空的 token
+    if not cleaned:
+        return ""
+
     # 英文用空格 AND 连接，FTS5 默认 AND 语义
-    return " AND ".join(parts)
+    return " AND ".join(cleaned)
 
 
 def search_bm25(

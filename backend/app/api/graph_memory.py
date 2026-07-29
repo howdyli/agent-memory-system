@@ -43,6 +43,11 @@ from app.services.graph_memory_service import (
     # 去重检测
     detect_duplicate_entities,
 )
+from app.services.graph_community_service import (
+    detect_communities,
+    get_communities,
+    get_community_stats,
+)
 from app.core.auth import Principal, get_current_principal
 from app.core.rbac import Perm, require_permission
 from app.core.errors import handle_service_result
@@ -105,7 +110,7 @@ class ExtractRequest(BaseModel):
 # 1. 实体管理 API
 # ============================================================
 
-@router.post("/memory/graph/entities", summary="创建实体", description="创建或获取知识图谱实体（人物/组织/地点/事件/概念）")
+@router.post("/memory/graph/entities", status_code=status.HTTP_201_CREATED, summary="创建实体", description="创建或获取知识图谱实体（人物/组织/地点/事件/概念）")
 @handle_service_result
 async def create_entity(
     request: EntityCreateRequest,
@@ -223,7 +228,7 @@ async def merge_entities_api(
 # 2. 关系管理 API
 # ============================================================
 
-@router.post("/memory/graph/relationships", summary="创建关系", description="创建两个实体之间的关系（支持时序属性和置信度）")
+@router.post("/memory/graph/relationships", status_code=status.HTTP_201_CREATED, summary="创建关系", description="创建两个实体之间的关系（支持时序属性和置信度）")
 @handle_service_result
 async def create_relationship(
     request: RelationshipCreateRequest,
@@ -532,3 +537,50 @@ async def get_statistics_api(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# 9. 社区检测 API（P2 R-15）
+# ============================================================
+
+class CommunityDetectRequest(BaseModel):
+    workspace_id: Optional[int] = None
+    resolution: Optional[float] = Field(None, ge=0.1, le=10.0)
+
+
+@router.post("/memory/graph/communities/detect", status_code=200, summary="触发社区检测")
+@handle_service_result
+async def detect_communities_api(
+    request: CommunityDetectRequest,
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE)),
+):
+    """运行 Louvain 社区发现并持久化结果（覆盖旧结果）"""
+    return detect_communities(
+        user_id=principal.user_id,
+        workspace_id=request.workspace_id or principal.workspace_id,
+        resolution=request.resolution,
+    )
+
+
+@router.get("/memory/graph/communities", summary="查询社区列表")
+@handle_service_result
+async def get_communities_api(
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
+):
+    """返回最近一次社区检测结果（含实体详情）"""
+    return get_communities(
+        user_id=principal.user_id,
+        workspace_id=principal.workspace_id,
+    )
+
+
+@router.get("/memory/graph/communities/stats", summary="社区检测统计")
+@handle_service_result
+async def get_community_stats_api(
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ)),
+):
+    """返回最近一次 run 的元信息（modularity、社区数、节点/边数）"""
+    return get_community_stats(
+        user_id=principal.user_id,
+        workspace_id=principal.workspace_id,
+    )

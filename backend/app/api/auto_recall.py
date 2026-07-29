@@ -30,6 +30,7 @@ router = APIRouter(tags=["auto-recall"])
 
 class AutoRecallRequest(BaseModel):
     query: str
+    top_k: Optional[int] = None
 
 
 class GenerateSummaryRequest(BaseModel):
@@ -40,6 +41,7 @@ class SearchMemoriesRequest(BaseModel):
     query: str
     top_k: Optional[int] = 5
     threshold: Optional[float] = 0.3
+    agent_id: Optional[int] = None  # 调用方 Agent（传入时按 scope 过滤 private 记忆）
 
 
 class InjectContextRequest(BaseModel):
@@ -52,14 +54,17 @@ class UpdateConfigRequest(BaseModel):
     config: Dict[str, Any]
 
 
-@router.post("/")
+@router.post("")
 async def auto_recall_api(
     request: AutoRecallRequest,
     principal: Principal = Depends(get_current_principal)
 ):
     """自动记忆召回（一键召回相关记忆并注入上下文）"""
     try:
-        result = auto_recall(principal.user_id, request.query)
+        result = auto_recall(
+            principal.user_id, request.query,
+            workspace_id=principal.workspace_id, top_k=request.top_k,
+        )
         if result["success"]:
             return result
         else:
@@ -109,11 +114,23 @@ async def search_memories_api(
 ):
     """相关性检索（Top-K 记忆检索）"""
     try:
+        # Agent 作用域：校验该 agent 属于调用方 workspace，否则 403
+        if request.agent_id is not None:
+            from app.services.agent_registry_service import validate_agent_in_workspace
+            if not validate_agent_in_workspace(
+                request.agent_id, principal.user_id, principal.workspace_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Agent {request.agent_id} does not belong to current workspace"
+                )
+
         result = search_relevant_memories(
             user_id=principal.user_id,
             query=request.query,
             top_k=request.top_k or 5,
-            threshold=request.threshold or 0.3
+            threshold=request.threshold or 0.3,
+            agent_id=request.agent_id
         )
         if result["success"]:
             return result

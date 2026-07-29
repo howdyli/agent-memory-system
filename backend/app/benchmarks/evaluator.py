@@ -105,7 +105,8 @@ def _heuristic_judge(
     2. 事实问题：检查参考答案的核心词是否出现在模型答案中
     """
     model_lower = model_answer.lower().strip()
-    ref_lower = reference_answer.lower().strip()
+    # 真实数据集中 reference_answer 可能是 int/float，统一转 str
+    ref_lower = str(reference_answer).lower().strip()
 
     # 弃权问题：模型应回答"不知道"
     if is_abstention:
@@ -170,6 +171,10 @@ def evaluate_answer(
             "reason": str,
         }
     """
+    # 参考答案可能是数字（如时间推理题的月数），统一转为字符串
+    reference_answer = str(reference_answer) if reference_answer is not None else ""
+    model_answer = str(model_answer) if model_answer is not None else ""
+
     # 优先使用 LLM Judge
     if use_llm_judge:
         prompt = JUDGE_PROMPT_TEMPLATE.format(
@@ -201,6 +206,29 @@ def evaluate_answer(
 # 批量评估与指标计算
 # ============================================================
 
+def wilson_ci(correct: int, total: int, z: float = 1.96) -> tuple:
+    """计算 Wilson 置信区间（95% 默认，z=1.96）。
+
+    用于对小样本准确率进行置信区间估计，使发布的基准评分更可信。
+
+    Args:
+        correct: 正确数
+        total: 总数
+        z: z 分数（1.96 = 95% CI, 2.576 = 99% CI）
+
+    Returns:
+        (lower, upper) 置信区间下界与上界
+    """
+    if total == 0:
+        return (0.0, 0.0)
+    import math
+    p = correct / total
+    denom = 1 + z * z / total
+    center = (p + z * z / (2 * total)) / denom
+    spread = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / denom
+    return (max(0.0, center - spread), min(1.0, center + spread))
+
+
 def compute_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """计算评估指标。
 
@@ -212,15 +240,19 @@ def compute_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
             "total": int,
             "correct": int,
             "accuracy": float,
-            "by_ability": {ability: {"total": int, "correct": int, "accuracy": float}},
-            "by_question_type": {qt: {"total": int, "correct": int, "accuracy": float}},
-            "by_evaluator": {evaluator: {"total": int, "correct": int, "accuracy": float}},
+            "accuracy_ci_low": float,   # Wilson 置信区间下界（95%）
+            "accuracy_ci_high": float,  # Wilson 置信区间上界（95%）
+            "by_ability": {ability: {"total": int, "correct": int, "accuracy": float, "ci_low": float, "ci_high": float}},
+            "by_question_type": {qt: {"total": int, "correct": int, "accuracy": float, "ci_low": float, "ci_high": float}},
+            "by_evaluator": {evaluator: {"total": int, "correct": int, "accuracy": float, "ci_low": float, "ci_high": float}},
         }
     """
     metrics: Dict[str, Any] = {
         "total": len(results),
         "correct": sum(1 for r in results if r.get("correct")),
         "accuracy": 0.0,
+        "accuracy_ci_low": 0.0,
+        "accuracy_ci_high": 0.0,
         "by_ability": {},
         "by_question_type": {},
         "by_evaluator": {},
@@ -228,12 +260,15 @@ def compute_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     metrics["accuracy"] = (
         metrics["correct"] / metrics["total"] if metrics["total"] else 0.0
     )
+    ci_low, ci_high = wilson_ci(metrics["correct"], metrics["total"])
+    metrics["accuracy_ci_low"] = ci_low
+    metrics["accuracy_ci_high"] = ci_high
 
     for r in results:
         # 按能力分类
         ability = r.get("ability", "unknown")
         if ability not in metrics["by_ability"]:
-            metrics["by_ability"][ability] = {"total": 0, "correct": 0, "accuracy": 0.0}
+            metrics["by_ability"][ability] = {"total": 0, "correct": 0, "accuracy": 0.0, "ci_low": 0.0, "ci_high": 0.0}
         metrics["by_ability"][ability]["total"] += 1
         if r.get("correct"):
             metrics["by_ability"][ability]["correct"] += 1
@@ -241,7 +276,7 @@ def compute_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         # 按问题类型分类
         qt = r.get("question_type", "unknown")
         if qt not in metrics["by_question_type"]:
-            metrics["by_question_type"][qt] = {"total": 0, "correct": 0, "accuracy": 0.0}
+            metrics["by_question_type"][qt] = {"total": 0, "correct": 0, "accuracy": 0.0, "ci_low": 0.0, "ci_high": 0.0}
         metrics["by_question_type"][qt]["total"] += 1
         if r.get("correct"):
             metrics["by_question_type"][qt]["correct"] += 1
@@ -249,16 +284,19 @@ def compute_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         # 按评估器分类
         evaluator = r.get("evaluator", "unknown")
         if evaluator not in metrics["by_evaluator"]:
-            metrics["by_evaluator"][evaluator] = {"total": 0, "correct": 0, "accuracy": 0.0}
+            metrics["by_evaluator"][evaluator] = {"total": 0, "correct": 0, "accuracy": 0.0, "ci_low": 0.0, "ci_high": 0.0}
         metrics["by_evaluator"][evaluator]["total"] += 1
         if r.get("correct"):
             metrics["by_evaluator"][evaluator]["correct"] += 1
 
-    # 计算各类别准确率
+    # 计算各类别准确率与置信区间
     for category_dict in [metrics["by_ability"], metrics["by_question_type"], metrics["by_evaluator"]]:
         for key, vals in category_dict.items():
             vals["accuracy"] = (
                 vals["correct"] / vals["total"] if vals["total"] else 0.0
             )
+            ci_low, ci_high = wilson_ci(vals["correct"], vals["total"])
+            vals["ci_low"] = ci_low
+            vals["ci_high"] = ci_high
 
     return metrics

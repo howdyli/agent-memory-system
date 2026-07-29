@@ -20,12 +20,30 @@ Pytest fixtures for Agent Memory System tests.
             json={"content": "test", "fragment_type": "info"},
             headers=auth_headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
 """
 import pytest
 import pytest_asyncio
 import sys
 import os
+import types
+
+# Disable ChromaDB telemetry to prevent posthog thread segfault on Python 3.13.
+# TODO(chroma-hnswlib): 跟踪 https://github.com/chroma-core/chroma/issues/6895
+# 当 chroma-hnswlib 修复 Python 3.13 兼容性后，可移除此 mock 和 ANONYMIZED_TELEMETRY 设置。
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+if "posthog" not in sys.modules:
+    _posthog_mock = types.ModuleType("posthog")
+    _posthog_mock.capture = lambda *a, **kw: None
+    _posthog_mock.identify = lambda *a, **kw: None
+    _posthog_mock.Posthog = type("Posthog", (), {
+        "__init__": lambda self, *a, **kw: None,
+        "capture": lambda self, *a, **kw: None,
+        "identify": lambda self, *a, **kw: None,
+        "flush": lambda self, *a, **kw: None,
+        "shutdown": lambda self, *a, **kw: None,
+    })
+    sys.modules["posthog"] = _posthog_mock
 
 # Add backend to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -78,19 +96,41 @@ def _cleanup_test_data(db_client):
     try:
         for table, condition in [
             ("memory_variables", "user_id = 999"),
-            ("memory_fragments", "user_id = 999"),
+            # 先删子表（有 FK 引用 memory_fragments/graph_entities 的）再删父表
+            ("vector_outbox", "user_id = 999"),
             ("memory_versions", "user_id = 999"),
             ("memory_feedback", "user_id = 999"),
-            ("query_logs", "user_id = 999"),
             ("memory_lifecycle", "user_id = 999"),
             ("memory_delete_log", "user_id = 999"),
             ("memory_merge_log", "user_id = 999"),
-            ("vector_outbox", "user_id = 999"),
+            ("memory_evolution", "user_id = 999"),
+            ("memory_fragments", "user_id = 999"),
+            ("graph_relationships", "user_id = 999"),
+            ("graph_entities", "user_id = 999"),
+            ("query_logs", "user_id = 999"),
+            ("extraction_prompts", "user_id = 999"),
+            ("recall_config", "user_id = 999"),
+            ("conversation_history", "user_id = 999"),
+            ("conversation_summaries", "user_id = 999"),
+            ("chat_sessions", "user_id = 999"),
+            ("memory_tables", "user_id = 999"),
         ]:
             try:
                 db_client.execute(f"DELETE FROM {table} WHERE {condition}")
             except Exception:
                 pass  # 表可能不存在
+
+        # 清理动态创建的物理表（memory_999_* 模式）
+        try:
+            rows = db_client.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'memory_999_%'"
+            )
+            if rows:
+                for row in rows:
+                    tbl_name = row["name"] if isinstance(row, dict) else row[0]
+                    db_client.execute(f'DROP TABLE IF EXISTS "{tbl_name}"')
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -126,6 +166,36 @@ def _reset_rate_limiter():
         from app.services.security_service import get_rate_limiter
         limiter = get_rate_limiter()
         limiter._requests.clear()
+    except Exception:
+        pass
+
+
+@pytest.fixture(scope="function", autouse=True)
+def _cleanup_event_bus():
+    """每个测试后清理 EventBus 的 dispatch tasks，避免 "Task was destroyed but it is pending" 警告。"""
+    yield
+    try:
+        from app.core.event_bus import _event_bus
+        if _event_bus is not None:
+            import asyncio
+            for task in _event_bus._dispatch_tasks.values():
+                task.cancel()
+            _event_bus._dispatch_tasks.clear()
+            _event_bus._subscribers.clear()
+    except Exception:
+        pass
+
+
+@pytest.fixture(scope="function", autouse=True)
+def _cleanup_test_data_autouse():
+    """每个测试函数后自动清理测试数据（autouse），确保测试间数据隔离。
+
+    无论测试是否显式使用 db fixture，都会执行清理。
+    """
+    yield
+    try:
+        db_client = get_db_client()
+        _cleanup_test_data(db_client)
     except Exception:
         pass
 

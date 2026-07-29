@@ -995,6 +995,64 @@ def llm_embed(user_id: int, text: str, backend_name: Optional[str] = None) -> Di
 
 
 # ============================================================
+# Vision 调用（P2 R-13 多模态记忆）
+# ============================================================
+
+_VISION_MIME_MAP = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "gif": "image/gif", "webp": "image/webp",
+}
+
+
+def llm_vision_chat(prompt: str, image_path: str, temperature: float = 0.1) -> Optional[str]:
+    """
+    Vision 描述调用：图片 base64 + OpenAI 兼容 image_url 消息格式
+
+    模型取 VISION_MODEL（空则复用 DEEPSEEK_MODEL），配置来自 get_settings()。
+    无 API Key / 调用异常 / 返回空内容时返回 None（与 llm_chat 降级口径一致，
+    由调用方决定降级策略，不返回 mock 描述）。
+    """
+    import base64
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.DEEPSEEK_API_KEY:
+        logger.warning("⚠ 未配置 Vision API Key，跳过图片描述（离线降级）")
+        return None
+
+    try:
+        ext = os.path.splitext(image_path)[1].lstrip(".").lower()
+        mime = _VISION_MIME_MAP.get(ext, "image/jpeg")
+        with open(image_path, "rb") as f:
+            image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        import openai
+        client = openai.OpenAI(
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url=settings.DEEPSEEK_BASE_URL or "https://api.deepseek.com/v1",
+            timeout=float(settings.LLM_TIMEOUT_SECONDS),
+        )
+        model = settings.VISION_MODEL or settings.DEEPSEEK_MODEL
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
+                ],
+            }],
+            temperature=temperature,
+        )
+        content = response.choices[0].message.content
+        return content.strip() if content else None
+    except Exception as e:
+        logger.warning(f"⚠ Vision 描述调用失败（降级为无描述）: {e}")
+        return None
+
+
+# ============================================================
 # 测试
 # ============================================================
 

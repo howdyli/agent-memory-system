@@ -137,7 +137,8 @@ def detect_contradiction(
                 threshold=pattern_threshold,
                 now=now,
             )
-            if pattern_results["superseded_ids"]:
+            # 注意：pending_review 冲突不产生 superseded_ids，但仍需返回给调用方
+            if pattern_results["contradictions"]:
                 contradictions.extend(pattern_results["contradictions"])
                 superseded_ids.extend(pattern_results["superseded_ids"])
                 detection_methods.append("pattern")
@@ -199,14 +200,21 @@ def _detect_pattern_contradiction(
 
     同实体类型 + 不同值即为矛盾（entity_type 匹配已是强信号，
     不再要求文本相似度达标，threshold 仅用于记录相似度分数）。
+
+    W2-F2.3: 检出的矛盾交由 ConflictResolver 策略化解决
+    （latest_wins / confidence_based / manual_review）。
     """
+    from app.services.conflict_resolution_service import get_conflict_resolver
+
     db = get_db_client()
     contradictions: List[Dict[str, Any]] = []
     superseded_ids: List[int] = []
     evolution_records: List[int] = []
 
     rows = db.execute(
-        """SELECT id, content, lifecycle_status FROM memory_fragments
+        """SELECT id, user_id, workspace_id, content, importance_score,
+                  created_at, last_recalled_at, lifecycle_status
+           FROM memory_fragments
            WHERE user_id = ? AND lifecycle_status = 'active'
            ORDER BY created_at DESC""",
         (user_id,),
@@ -224,7 +232,6 @@ def _detect_pattern_contradiction(
         # 同类型但不同值 → 矛盾（entity_type 匹配是强信号，无需文本相似度过滤）
         if old_type == update_type and old_value.lower() != new_value.lower():
             similarity = _text_similarity(old_content, new_content)
-            superseded_ids.append(row["id"])
             contradictions.append({
                 "old_fragment_id": row["id"],
                 "old_content": old_content,
@@ -233,11 +240,35 @@ def _detect_pattern_contradiction(
                 "entity_type": update_type,
                 "detection_method": "pattern",
                 "similarity_score": similarity,
+                "_old_fragment": dict(row),  # 供 ConflictResolver 使用，返回前移除
             })
 
-    # 标记 + 写入演变记录
+    # W2-F2.3: 策略化解决 + 写入演变记录
+    resolver = get_conflict_resolver()
+    new_fragment = _load_fragment(user_id, new_fragment_id) or {
+        "id": new_fragment_id,
+        "user_id": user_id,
+        "workspace_id": workspace_id,
+        "content": new_content,
+    }
+
     for c in contradictions:
-        _mark_superseded(user_id, c["old_fragment_id"])
+        old_fragment = c.pop("_old_fragment")
+        resolution = resolver.resolve(
+            old_fragment,
+            new_fragment,
+            {"entity_type": c["entity_type"], "detection_method": "pattern"},
+        )
+        c["resolution_strategy"] = resolution.strategy
+        c["resolution_action"] = resolution.action
+        if resolution.conflict_id:
+            c["conflict_id"] = resolution.conflict_id
+
+        # 仅在旧记忆被取代时计入 superseded 并写演变链；
+        # kept_old（低可信新记忆被拒）与 pending_review 不改写旧记忆
+        if resolution.action != "superseded_old":
+            continue
+        superseded_ids.append(c["old_fragment_id"])
         eid = _record_evolution(
             user_id=user_id,
             workspace_id=workspace_id,
@@ -548,6 +579,18 @@ def get_evolution_statistics(
 # ============================================================
 # 4. 内部辅助函数
 # ============================================================
+
+def _load_fragment(user_id: int, fragment_id: Optional[int]) -> Optional[Dict[str, Any]]:
+    """加载记忆片段完整行（供 ConflictResolver 评估可信度）。"""
+    if not fragment_id:
+        return None
+    db = get_db_client()
+    rows = db.execute(
+        "SELECT * FROM memory_fragments WHERE id = ? AND user_id = ?",
+        (fragment_id, user_id),
+    )
+    return dict(rows[0]) if rows else None
+
 
 def _mark_superseded(user_id: int, fragment_id: int) -> None:
     """将记忆片段标记为 superseded。"""

@@ -103,7 +103,7 @@ class AsyncMemoryClient:
 
     async def recall_context(self, query: str, top_k: int = 5) -> str:
         try:
-            result = await self._transport.request("POST", "/memory/recall/", json={"query": query})
+            result = await self._transport.request("POST", "/memory/recall", json={"query": query, "top_k": top_k})
             if isinstance(result, dict) and result.get("context"):
                 return result["context"]
             return ""
@@ -117,6 +117,29 @@ class AsyncMemoryClient:
             return result.get("success", True)
         return bool(result)
 
+    async def get_variable(self, key: str) -> Any:
+        """读取单个记忆变量；不存在时返回 None（不抛）。"""
+        try:
+            result = await self._transport.request("GET", f"/memory/variables/{key}")
+        except Exception as e:
+            logger.debug(f"get_variable({key}) 失败: {e}")
+            return None
+        if isinstance(result, dict):
+            return result.get("value")
+        return None
+
+    async def list_variables(self, detailed: bool = False) -> Any:
+        """列出当前租户全部记忆变量。
+
+        detailed=False → {key: value} 字典；
+        detailed=True → [{key, value, ttl, expires_at}, ...] 列表。
+        """
+        params = "?detailed=true" if detailed else ""
+        result = await self._transport.request("GET", f"/memory/variables{params}")
+        if isinstance(result, dict):
+            return result.get("variables", [] if detailed else {})
+        return [] if detailed else {}
+
     async def search(self, query: str, top_k: int = 5, threshold: float = 0.3) -> List[Dict[str, Any]]:
         result = await self._transport.request("POST", "/memory/fragments/search", json={
             "query": query, "top_k": top_k, "threshold": threshold,
@@ -124,6 +147,100 @@ class AsyncMemoryClient:
         if isinstance(result, dict):
             return result.get("results", result.get("fragments", []))
         return result if isinstance(result, list) else []
+
+    async def remember_fragment(
+        self,
+        content: str,
+        fragment_type: str = "fact",
+        importance_score: float = 0.5,
+        ttl: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """创建语义记忆片段（与同步版 MemoryClient.remember_fragment 对齐）。"""
+        return await self._transport.request("POST", "/memory/fragments", json={
+            "fragment_type": fragment_type,
+            "content": content,
+            "importance_score": importance_score,
+            "ttl": ttl,
+            "metadata": metadata,
+        })
+
+    async def create_table(self, table_name: str, fields: List[Dict[str, str]]) -> bool:
+        """创建记忆表（动态表结构）。表已存在/失败返回 False，不抛。
+
+        fields 形如 [{"name": "title", "type": "TEXT"}, ...]。
+        """
+        try:
+            result = await self._transport.request("POST", "/memory/tables", json={
+                "table_name": table_name, "fields": fields,
+            })
+        except Exception as e:
+            logger.debug(f"create_table({table_name}) 失败: {e}")
+            return False
+        if isinstance(result, dict):
+            return result.get("success", True)
+        return bool(result)
+
+    async def list_tables(self) -> List[str]:
+        """列出当前租户已创建的记忆表名。失败返回 []。"""
+        try:
+            result = await self._transport.request("GET", "/memory/tables/")
+        except Exception as e:
+            logger.debug(f"list_tables 失败: {e}")
+            return []
+        if isinstance(result, dict):
+            tables = result.get("tables", [])
+            # 兼容 [{"table_name": ...}] 与 ["name"] 两种形态
+            return [t.get("table_name", t) if isinstance(t, dict) else t for t in tables]
+        return []
+
+    async def add_record(self, table_name: str, record: Dict[str, Any]) -> Optional[int]:
+        """向记忆表插入一条记录，返回新记录 ID；失败返回 None。"""
+        try:
+            result = await self._transport.request(
+                "POST", f"/memory/tables/{table_name}/records", json={"record": record},
+            )
+        except Exception as e:
+            logger.debug(f"add_record({table_name}) 失败: {e}")
+            return None
+        if isinstance(result, dict):
+            return result.get("record_id", result.get("id"))
+        return None
+
+    async def query_records(
+        self,
+        table_name: str,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """查询记忆表记录（等值过滤）。失败返回 []。"""
+        try:
+            result = await self._transport.request(
+                "POST", f"/memory/tables/{table_name}/query",
+                json={"filters": filters, "limit": limit},
+            )
+        except Exception as e:
+            logger.debug(f"query_records({table_name}) 失败: {e}")
+            return []
+        if isinstance(result, dict):
+            return result.get("records", [])
+        return []
+
+    async def update_record(
+        self, table_name: str, record_id: int, updates: Dict[str, Any],
+    ) -> bool:
+        """按 record_id 更新记忆表记录。失败返回 False，不抛。"""
+        try:
+            result = await self._transport.request(
+                "PUT", f"/memory/tables/{table_name}/records",
+                json={"updates": updates}, params={"record_id": record_id},
+            )
+        except Exception as e:
+            logger.debug(f"update_record({table_name}, {record_id}) 失败: {e}")
+            return False
+        if isinstance(result, dict):
+            return result.get("success", True)
+        return bool(result)
 
     async def close(self) -> None:
         await self._transport.close()

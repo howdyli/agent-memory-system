@@ -163,9 +163,9 @@ export const fragmentsApi = {
   listPrompts: () => apiClient.get('/memory/fragments/prompts'),
   createPrompt: (data: { name: string; template: string; description?: string }) =>
     apiClient.post('/memory/fragments/prompts', data),
-  list: (type?: string) => apiClient.get('/memory/fragments/', { params: { type } }),
+  list: (type?: string) => apiClient.get('/memory/fragments', { params: { type } }),
   create: (data: { type?: string; fragment_type?: string; content: string; importance_score?: number; ttl?: number }) =>
-    apiClient.post('/memory/fragments/', { fragment_type: data.fragment_type || data.type, content: data.content, importance_score: data.importance_score, ttl: data.ttl }),
+    apiClient.post('/memory/fragments', { fragment_type: data.fragment_type || data.type, content: data.content, importance_score: data.importance_score, ttl: data.ttl }),
   get: (fragmentId: number) => apiClient.get(`/memory/fragments/${fragmentId}`),
   update: (fragmentId: number, data: { content?: string; importance_score?: number; ttl?: number }) =>
     apiClient.put(`/memory/fragments/${fragmentId}`, data),
@@ -179,8 +179,8 @@ export const fragmentsApi = {
 
 // ==================== Auto Recall API ====================
 export const recallApi = {
-  auto: (query: string, userId?: string) =>
-    apiClient.post('/memory/recall/', { query, user_id: userId }),
+  auto: (query: string, userId?: string, topK?: number) =>
+    apiClient.post('/memory/recall', { query, user_id: userId, top_k: topK }),
   summary: (userId?: string) => apiClient.post('/memory/recall/summary', { user_id: userId }),
   search: (query: string, topK?: number) =>
     apiClient.post('/memory/recall/search', { query, top_k: topK }),
@@ -410,6 +410,19 @@ export const hybridSearchApi = {
   updateConfig: (data: Record<string, unknown>) =>
     apiClient.put('/memory/hybrid-search/config', data),
   rebuildIndex: () => apiClient.post('/memory/hybrid-search/rebuild-index'),
+};
+
+// ==================== Playground API ====================
+export const playgroundApi = {
+  simulateInjection: (data: { content: string; fragment_type?: string; importance?: number }) =>
+    apiClient.post('/playground/simulate-injection', data),
+  simulateRecall: (data: { query: string; top_k?: number; budget_tokens?: number }) =>
+    apiClient.post('/playground/simulate-recall', data),
+  simulateDecay: (data: { fragment_type?: string; importance?: number; days?: number; half_life_days?: number }) =>
+    apiClient.post('/playground/simulate-decay', data),
+  evolutionChain: (entityType: string, entityKey?: string) =>
+    apiClient.get('/memory/evolution/chain', { params: { entity_type: entityType, entity_key: entityKey } }),
+  evolutionStatistics: () => apiClient.get('/memory/evolution/statistics'),
 };
 
 // ==================== Sessions API ====================

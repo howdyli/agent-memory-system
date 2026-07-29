@@ -14,6 +14,14 @@ from agent_memory.transport.base import Transport
 
 logger = logging.getLogger(__name__)
 
+# 可通过 configure() 调整的高级参数及默认值（W3-F3.2）
+_DEFAULT_SETTINGS: Dict[str, Any] = {
+    "recall_top_k": 5,
+    "semantic_threshold": 0.3,
+    "preference_half_life_days": 1,
+    "plan_half_life_days": 90,
+}
+
 
 class MemoryClient:
     """
@@ -67,6 +75,9 @@ class MemoryClient:
         else:
             raise ValueError(f"未知 mode: {mode}，支持 'http' 或 'embedded'")
 
+        # 高级参数（预设默认值，可用 configure() 覆盖）
+        self._settings: Dict[str, Any] = dict(_DEFAULT_SETTINGS)
+
         # 初始化各 API 子模块
         self.variables = VariablesAPI(self._transport)
         self.fragments = FragmentsAPI(self._transport)
@@ -77,6 +88,30 @@ class MemoryClient:
         self.webhooks = WebhooksAPI(self._transport)
 
     # ================================================================
+    # 配置（W3-F3.2：高级参数仅在此暴露）
+    # ================================================================
+
+    def configure(self, **kwargs: Any) -> "MemoryClient":
+        """覆盖高级参数（recall_top_k / semantic_threshold /
+        preference_half_life_days / plan_half_life_days）。
+
+        返回 self，支持链式调用。未知参数报 ValueError。
+        """
+        unknown = set(kwargs) - set(_DEFAULT_SETTINGS)
+        if unknown:
+            raise ValueError(
+                f"未知配置项: {', '.join(sorted(unknown))}，"
+                f"可用配置项: {', '.join(sorted(_DEFAULT_SETTINGS))}"
+            )
+        self._settings.update({k: v for k, v in kwargs.items() if v is not None})
+        return self
+
+    @property
+    def settings(self) -> Dict[str, Any]:
+        """当前生效的高级参数（副本）。"""
+        return dict(self._settings)
+
+    # ================================================================
     # 高层便捷方法（与现有 AgentMemoryClient 兼容）
     # ================================================================
 
@@ -84,14 +119,18 @@ class MemoryClient:
         """存储一条 KV 记忆变量。"""
         return self.variables.set(key, value, ttl=ttl)
 
-    def recall_context(self, query: str, top_k: int = 5) -> str:
+    def recall_context(self, query: str, top_k: Optional[int] = None) -> str:
         """
         召回与 query 相关的记忆，返回可直接注入 Prompt 的格式化上下文。
 
+        top_k 缺省使用 configure() / 预设中的 recall_top_k。
         注意：方法名 recall_context 避免与子模块 self.recall 冲突。
         """
         try:
-            result = self.recall.auto(query=query)
+            result = self.recall.auto(
+                query=query,
+                top_k=top_k if top_k is not None else self._settings["recall_top_k"],
+            )
             if isinstance(result, dict) and result.get("context"):
                 return result["context"]
             return ""
@@ -103,9 +142,18 @@ class MemoryClient:
         """删除一条 KV 记忆变量。"""
         return self.variables.delete(key)
 
-    def search(self, query: str, top_k: int = 5, threshold: float = 0.3) -> List[Dict[str, Any]]:
-        """语义搜索相关记忆片段。"""
-        return self.fragments.semantic_search(query, top_k=top_k, threshold=threshold)
+    def search(
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+        threshold: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """语义搜索相关记忆片段。缺省参数取自 configure() / 预设。"""
+        return self.fragments.semantic_search(
+            query,
+            top_k=top_k if top_k is not None else self._settings["recall_top_k"],
+            threshold=threshold if threshold is not None else self._settings["semantic_threshold"],
+        )
 
     def get_context(self, session_id: Optional[str] = None) -> str:
         """获取当前用户完整记忆上下文。"""
