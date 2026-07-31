@@ -59,6 +59,25 @@ async def readiness(response: Response):
         checks["vector_store"] = f"fail: {e}"
         all_ok = False
 
+    # Embedding 预热（G1）：READINESS_WAIT_FOR_WARMUP=True 时未完成预热不接流；
+    # failed 仅记录不置 not_ready（允许降级运行，避免预热失败导致永久摘流）
+    try:
+        from app.core.config import get_settings
+        from app.core.embedding_warmup import get_warmup_status
+        warmup_status = get_warmup_status()["status"]
+        if warmup_status == "failed":
+            checks["embedding_warmup"] = "failed (degraded, lazy-load fallback)"
+        else:
+            checks["embedding_warmup"] = warmup_status
+        if (
+            get_settings().READINESS_WAIT_FOR_WARMUP
+            and warmup_status in ("pending", "warming_up")
+        ):
+            all_ok = False
+    except Exception as e:
+        # 状态读取异常不阻断 readiness（预热仅优化首次延迟，非硬依赖）
+        checks["embedding_warmup"] = f"unknown: {e}"
+
     if not all_ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 

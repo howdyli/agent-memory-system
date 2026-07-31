@@ -173,7 +173,15 @@ class ChromaDBClient:
             except Exception:
                 provider = None
             if provider is not None:
-                query_kwargs["query_embeddings"] = [provider.embed_query(query_text)]
+                # 降级保护：本地模型加载/嵌入失败时回退 Chroma 内置嵌入，不让异常冒泡
+                try:
+                    query_kwargs["query_embeddings"] = [provider.embed_query(query_text)]
+                except Exception as embed_err:
+                    # [embedding_fallback] 为稳定监控标记，便于告警规则识别静默降级
+                    logger.warning(
+                        f"[embedding_fallback] ⚠️ 查询嵌入计算失败，回退 Chroma 内置嵌入: {embed_err}"
+                    )
+                    query_kwargs["query_texts"] = [query_text]
             else:
                 query_kwargs["query_texts"] = [query_text]
 

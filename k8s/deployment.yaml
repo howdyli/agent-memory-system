@@ -23,6 +23,13 @@ data:
   DATABASE_URL: "postgresql://memory_user:$(DB_PASSWORD)@postgres-svc:5432/agent_memory"
   REDIS_URL: "redis://redis-svc:6379/0"
   EVENT_BUS_BACKEND: "redis"
+  # G1 embedding 预热：预热完成前 /health/ready 返回 503（failed 自动放行，不永久摘流）。
+  # 对启动时间敏感的环境可改为 "false" 关闭门控（仅报告状态）。
+  READINESS_WAIT_FOR_WARMUP: "true"
+  # 其余预热可调项（默认值已合理，按需覆盖）：
+  # EMBEDDING_WARMUP_ENABLED: "true"   # 启动时后台预热 embedding 模型总开关
+  # EMBEDDING_WARMUP_TIMEOUT: "30.0"   # 单次预热尝试超时（秒）；大模型/慢磁盘可调大
+  # EMBEDDING_WARMUP_RETRIES: "2"      # 预热失败重试次数（指数退避）
 
 ---
 # Secret for sensitive data
@@ -94,11 +101,15 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 30
           failureThreshold: 3
+        # embedding 预热门控（READINESS_WAIT_FOR_WARMUP，默认 true）：首启时 /health/ready
+        # 在预热完成前返回 503，最长约 90s（3 次尝试 × 30s 超时）；预热失败会自动
+        # 放行（failed 不置 not_ready），不会永久摘流。对启动时间敏感的环境
+        # 可设 READINESS_WAIT_FOR_WARMUP=false 关闭门控。
         readinessProbe:
           httpGet:
             path: /api/v1/health/ready
             port: 8000
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
         # 注：数据已统一到 PostgreSQL，无需本地 PVC

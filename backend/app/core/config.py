@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"  # 仅 provider=local 生效
     EMBEDDING_DEVICE: str = "cpu"              # cpu | cuda | mps
     EMBEDDING_BATCH_SIZE: int = 32             # 文档嵌入批处理大小
+    EMBEDDING_WARMUP_ENABLED: bool = True      # 启动时后台预热 embedding 模型（G1 冷启动优化）
+    EMBEDDING_WARMUP_TIMEOUT: float = 30.0     # 单次预热尝试超时（秒）
+    EMBEDDING_WARMUP_RETRIES: int = 2          # 预热失败重试次数（指数退避）
+    READINESS_WAIT_FOR_WARMUP: bool = True     # /health/ready 是否等待预热完成（failed 不阻断）
     MILVUS_URI: str = "localhost:19530"
     QDRANT_URL: str = "http://localhost:6333"
 

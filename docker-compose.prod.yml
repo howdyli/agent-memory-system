@@ -24,6 +24,12 @@ services:
       - LOG_LEVEL=INFO
       - ENABLE_TRACING=true
       - OTLP_ENDPOINT=http://otel-collector:4317
+      # G1 embedding 预热可调项（默认值已合理，按需取消注释覆盖）：
+      # 预热完成前 /health/ready 返回 503；healthcheck 用 /health/live 不受门控影响。
+      # - READINESS_WAIT_FOR_WARMUP=true   # 预热失败自动放行；启动敏感环境可设 false 关闭门控
+      # - EMBEDDING_WARMUP_ENABLED=true    # 启动时后台预热 embedding 模型总开关
+      # - EMBEDDING_WARMUP_TIMEOUT=30.0    # 单次预热尝试超时（秒）
+      # - EMBEDDING_WARMUP_RETRIES=2       # 预热失败重试次数（指数退避）
     volumes:
       - memory_data:/data
     depends_on:
