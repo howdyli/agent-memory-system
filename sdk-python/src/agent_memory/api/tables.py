@@ -28,7 +28,8 @@ class TablesAPI:
         data: Dict[str, Any] = {"table_name": table_name, "fields": fields}
         if description:
             data["description"] = description
-        return self._t.request("POST", "/memory/tables/", json=data)
+        # 无尾斜杠：避免 FastAPI 将 POST 重定向（307）到无斜杠路由
+        return self._t.request("POST", "/memory/tables", json=data)
 
     def info(self, table_name: str) -> Dict[str, Any]:
         """获取表信息。"""

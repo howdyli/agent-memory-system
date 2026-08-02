@@ -21,7 +21,10 @@ from app.services.memory_variable_service import (
     update_variable_ttl,
     clear_memory_variables,
     extract_variables_from_text,
-    render_template
+    render_template,
+    restore_variables_from_backup,
+    get_variables_backup_stats,
+    purge_expired_backup_rows
 )
 from app.core.auth import Principal, get_current_principal
 from app.core.errors import AppException, NotFoundError
@@ -91,6 +94,60 @@ async def set_variable(
             
     except Exception as e:
         logger.error(f"✗ 设置变量失败: {e}")
+        raise AppException(str(e))
+
+
+# G3 备份管理端点（静态路由，必须注册在 /variables/{key} 通配路由之前）
+@router.post("/variables/restore-backup")
+async def restore_variables_backup(
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
+):
+    """从数据库备份恢复记忆变量到 Redis（仅补缺失 key，不覆盖现值）"""
+    try:
+        stats = restore_variables_from_backup(
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id
+        )
+        return {
+            "success": True,
+            **stats
+        }
+    except Exception as e:
+        logger.error(f"✗ 恢复变量备份失败: {e}")
+        raise AppException(str(e))
+
+
+@router.get("/variables/backup-stats")
+async def variables_backup_stats(
+    principal: Principal = Depends(require_permission(Perm.MEMORY_READ))
+):
+    """变量数据库备份统计（总行数 / 未过期行数 / 开关状态）"""
+    try:
+        return get_variables_backup_stats(
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id
+        )
+    except Exception as e:
+        logger.error(f"✗ 获取变量备份统计失败: {e}")
+        raise AppException(str(e))
+
+
+@router.post("/variables/backup-purge")
+async def purge_variables_backup(
+    principal: Principal = Depends(require_permission(Perm.MEMORY_WRITE))
+):
+    """物理清理备份表中已过期的行（防止备份表无限增长）"""
+    try:
+        stats = purge_expired_backup_rows(
+            user_id=principal.user_id,
+            workspace_id=principal.workspace_id
+        )
+        return {
+            "success": True,
+            **stats
+        }
+    except Exception as e:
+        logger.error(f"✗ 清理变量备份失败: {e}")
         raise AppException(str(e))
 
 

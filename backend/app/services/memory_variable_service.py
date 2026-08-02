@@ -10,6 +10,9 @@ import re
 from typing import Optional, Any, Dict, List
 from datetime import datetime, timedelta, timezone
 
+from app.core.config import get_settings
+from app.core.db_client import get_db_client
+
 logger = logging.getLogger(__name__)
 
 # 全局 Redis 客户端
@@ -52,6 +55,303 @@ def _build_index_key(user_id: int, session_id: Optional[str] = None,
     if session_id:
         return f"memory:var:index:{scope}:{session_id}"
     return f"memory:var:index:{scope}"
+
+
+# ============================================================
+# G3：数据库备份（best-effort 双写，绝不影响 Redis 主路径）
+# - 写路径镜像到 memory_variables_backup 表，失败仅 WARNING
+# - 读路径（get/list）仍 Redis-only，不经过备份表
+# - workspace_id/session_id 哨兵归一（空→0 / 空→''），保证 upsert 幂等
+# ============================================================
+
+_BACKUP_TS_FORMAT = "%Y-%m-%d %H:%M:%S"
+_backup_table_ready = False
+_backup_config_warned = False  # 配置读取失败只告警一次（每次写入都会调用，防刷屏）
+
+
+def _backup_enabled() -> bool:
+    """备份开关（读取失败视为关闭，不影响主路径）"""
+    global _backup_config_warned
+    try:
+        return bool(get_settings().VARIABLES_DB_BACKUP_ENABLED)
+    except Exception as e:
+        if not _backup_config_warned:
+            logger.warning(f"[variables_backup] 读取 VARIABLES_DB_BACKUP_ENABLED 失败，备份关闭: {e}")
+            _backup_config_warned = True
+        return False
+
+
+def _norm_workspace_id(workspace_id: Optional[int]) -> int:
+    """哨兵归一：无 workspace 存 0（workspace 真实 ID 从 1 自增）"""
+    return workspace_id if workspace_id is not None else 0
+
+
+def _norm_session_id(session_id: Optional[str]) -> str:
+    """哨兵归一：无 session 存空串"""
+    return session_id or ''
+
+
+def _utcnow_naive() -> datetime:
+    """UTC 当前时间（naive，与备份表存储格式一致）"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _parse_backup_timestamp(value: Any) -> Optional[datetime]:
+    """解析备份表时间戳（SQLite 返回 str，PG 返回 datetime）为 naive UTC"""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        dt = datetime.fromisoformat(str(value))
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _ensure_backup_table(db) -> None:
+    """惰性建表（仅每进程首次执行；SQLite/PG 均经各自翻译层）"""
+    global _backup_table_ready
+    if _backup_table_ready:
+        return
+    from app.core import schema_ddl
+    for stmt in schema_ddl.VARIABLES_BACKUP_DDL:
+        db.execute(stmt)
+    _backup_table_ready = True
+
+
+def _backup_upsert(user_id: int, key: str, value_str: str,
+                   session_id: Optional[str], ttl: Optional[int],
+                   workspace_id: Optional[int]) -> None:
+    """镜像写入备份表（INSERT ... ON CONFLICT DO UPDATE，SQLite≥3.24 / PG 通用）"""
+    try:
+        if not _backup_enabled():
+            return
+        db = get_db_client()
+        _ensure_backup_table(db)
+        expires_at = None
+        if ttl is not None:
+            expires_at = (_utcnow_naive() + timedelta(seconds=ttl)).strftime(_BACKUP_TS_FORMAT)
+        db.execute('''
+            INSERT INTO memory_variables_backup
+                (user_id, workspace_id, session_id, key, value, ttl_seconds, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, workspace_id, session_id, key)
+            DO UPDATE SET value = excluded.value,
+                          ttl_seconds = excluded.ttl_seconds,
+                          expires_at = excluded.expires_at,
+                          updated_at = CURRENT_TIMESTAMP
+        ''', (user_id, _norm_workspace_id(workspace_id), _norm_session_id(session_id),
+              key, value_str, ttl, expires_at))
+    except Exception as e:
+        logger.warning(f"[variables_backup] upsert 失败（不影响 Redis 主路径）: {e}")
+
+
+def _backup_delete(user_id: int, key: str,
+                   session_id: Optional[str], workspace_id: Optional[int]) -> None:
+    """镜像删除备份表记录"""
+    try:
+        if not _backup_enabled():
+            return
+        db = get_db_client()
+        _ensure_backup_table(db)
+        db.execute(
+            'DELETE FROM memory_variables_backup '
+            'WHERE user_id = ? AND workspace_id = ? AND session_id = ? AND key = ?',
+            (user_id, _norm_workspace_id(workspace_id), _norm_session_id(session_id), key))
+    except Exception as e:
+        logger.warning(f"[variables_backup] delete 失败（不影响 Redis 主路径）: {e}")
+
+
+def _backup_clear(user_id: int,
+                  session_id: Optional[str], workspace_id: Optional[int]) -> None:
+    """镜像清空备份表中同作用域的全部记录"""
+    try:
+        if not _backup_enabled():
+            return
+        db = get_db_client()
+        _ensure_backup_table(db)
+        db.execute(
+            'DELETE FROM memory_variables_backup '
+            'WHERE user_id = ? AND workspace_id = ? AND session_id = ?',
+            (user_id, _norm_workspace_id(workspace_id), _norm_session_id(session_id)))
+    except Exception as e:
+        logger.warning(f"[variables_backup] clear 失败（不影响 Redis 主路径）: {e}")
+
+
+def _backup_update_ttl(user_id: int, key: str, ttl: Optional[int],
+                       session_id: Optional[str], workspace_id: Optional[int]) -> None:
+    """镜像 TTL 更新（ttl 空/0 → 永久，ttl_seconds/expires_at 置 NULL）"""
+    try:
+        if not _backup_enabled():
+            return
+        db = get_db_client()
+        _ensure_backup_table(db)
+        ttl_seconds = ttl if ttl and ttl > 0 else None
+        expires_at = None
+        if ttl_seconds is not None:
+            expires_at = (_utcnow_naive() + timedelta(seconds=ttl_seconds)).strftime(_BACKUP_TS_FORMAT)
+        db.execute(
+            'UPDATE memory_variables_backup '
+            'SET ttl_seconds = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP '
+            'WHERE user_id = ? AND workspace_id = ? AND session_id = ? AND key = ?',
+            (ttl_seconds, expires_at, user_id, _norm_workspace_id(workspace_id),
+             _norm_session_id(session_id), key))
+    except Exception as e:
+        logger.warning(f"[variables_backup] ttl 更新失败（不影响 Redis 主路径）: {e}")
+
+
+def restore_variables_from_backup(user_id: Optional[int] = None,
+                                  workspace_id: Optional[int] = None) -> Dict[str, Any]:
+    """
+    从备份表恢复记忆变量到 Redis（G3）
+
+    仅恢复 Redis 中不存在的 key（绝不覆盖现值）；过期记录跳过；
+    按剩余 TTL 设置 expire（永久则 persist），并同步更新变量索引。
+
+    Returns:
+        {scanned, restored, skipped_existing, skipped_expired}，开关关闭时附加 disabled=True
+    """
+    stats: Dict[str, Any] = {"scanned": 0, "restored": 0,
+                             "skipped_existing": 0, "skipped_expired": 0}
+    if not _backup_enabled():
+        stats["disabled"] = True
+        return stats
+
+    try:
+        db = get_db_client()
+        _ensure_backup_table(db)
+        sql = ('SELECT user_id, workspace_id, session_id, key, value, ttl_seconds, expires_at '
+               'FROM memory_variables_backup')
+        conds: List[str] = []
+        params: List[Any] = []
+        if user_id is not None:
+            conds.append('user_id = ?')
+            params.append(user_id)
+        if workspace_id is not None:
+            conds.append('workspace_id = ?')
+            params.append(_norm_workspace_id(workspace_id))
+        if conds:
+            sql += ' WHERE ' + ' AND '.join(conds)
+        rows = db.execute(sql, tuple(params)) or []
+    except Exception as e:
+        logger.warning(f"[variables_backup] 读取备份表失败: {e}")
+        stats["error"] = str(e)
+        return stats
+
+    redis_client = get_redis_client()
+    now = _utcnow_naive()
+    for row in rows:
+        stats["scanned"] += 1
+        try:
+            record = dict(row)
+            remaining_ttl = None
+            expires_at = _parse_backup_timestamp(record.get("expires_at"))
+            if expires_at is not None:
+                remaining = (expires_at - now).total_seconds()
+                if remaining <= 0:
+                    stats["skipped_expired"] += 1
+                    # 扫描中遇到的过期行顺带物理清理，避免备份表无限增长
+                    db.execute(
+                        'DELETE FROM memory_variables_backup '
+                        'WHERE user_id = ? AND workspace_id = ? AND session_id = ? AND key = ?',
+                        (record["user_id"], record["workspace_id"],
+                         record["session_id"], record["key"]))
+                    continue
+                remaining_ttl = max(1, int(remaining))
+            # 反向哨兵归一：0 → 无 workspace，'' → 无 session
+            rec_workspace = record["workspace_id"] or None
+            rec_session = record["session_id"] or None
+            redis_key = _build_key(record["user_id"], record["key"], rec_session, rec_workspace)
+            # 前置 exists 快速跳过（省一次 SET 往返），但最终写入必须走原子 SET NX
+            if redis_client.exists(redis_key):
+                stats["skipped_existing"] += 1
+                continue
+            # 原子条件写入（SET NX + EX 单命令）：并发下在线新写入的值绝不被覆盖；
+            # ex=None 即永久（新建 key 无 TTL，无需再 persist）
+            set_ok = redis_client.get_connection().set(
+                redis_key, record["value"], nx=True, ex=remaining_ttl)
+            if not set_ok:
+                stats["skipped_existing"] += 1
+                continue
+            # 恢复时必须同步索引，否则 list_memory_variables 看不到恢复的 key
+            _update_variable_index(record["user_id"], record["key"], rec_session, rec_workspace)
+            stats["restored"] += 1
+        except Exception as e:
+            logger.warning(f"[variables_backup] 恢复单条记录失败: {e}")
+    logger.info(f"[variables_backup] 恢复完成: {stats}")
+    return stats
+
+
+def purge_expired_backup_rows(user_id: Optional[int] = None,
+                              workspace_id: Optional[int] = None) -> Dict[str, Any]:
+    """
+    物理清理备份表中已过期的行（G3）
+
+    TTL 变量在 Redis 自然过期后备份行会残留，需周期调用本函数
+    （或依赖 restore 顺带清理）防止表无限增长。best-effort，失败仅 WARNING。
+
+    Returns:
+        {purged: N}，开关关闭时附加 disabled=True
+    """
+    result: Dict[str, Any] = {"purged": 0}
+    if not _backup_enabled():
+        result["disabled"] = True
+        return result
+    try:
+        db = get_db_client()
+        _ensure_backup_table(db)
+        conds: List[str] = ['expires_at IS NOT NULL', 'expires_at < ?']
+        params: List[Any] = [_utcnow_naive().strftime(_BACKUP_TS_FORMAT)]
+        if user_id is not None:
+            conds.append('user_id = ?')
+            params.append(user_id)
+        if workspace_id is not None:
+            conds.append('workspace_id = ?')
+            params.append(_norm_workspace_id(workspace_id))
+        affected = db.execute(
+            'DELETE FROM memory_variables_backup WHERE ' + ' AND '.join(conds),
+            tuple(params))
+        # DELETE 返回 rowcount（部分驱动可能返 -1，兜底为 0）
+        result["purged"] = affected if isinstance(affected, int) and affected > 0 else 0
+        logger.info(f"[variables_backup] 过期行清理完成: {result}")
+    except Exception as e:
+        logger.warning(f"[variables_backup] 过期行清理失败: {e}")
+        result["error"] = str(e)
+    return result
+
+
+def get_variables_backup_stats(user_id: Optional[int] = None,
+                               workspace_id: Optional[int] = None) -> Dict[str, Any]:
+    """备份表统计：总行数 / 未过期行数 / 开关状态（轻量 COUNT）"""
+    result: Dict[str, Any] = {"enabled": _backup_enabled(), "total": 0, "active": 0}
+    if not result["enabled"]:
+        return result
+    try:
+        db = get_db_client()
+        _ensure_backup_table(db)
+        conds: List[str] = []
+        params: List[Any] = []
+        if user_id is not None:
+            conds.append('user_id = ?')
+            params.append(user_id)
+        if workspace_id is not None:
+            conds.append('workspace_id = ?')
+            params.append(_norm_workspace_id(workspace_id))
+        where = (' WHERE ' + ' AND '.join(conds)) if conds else ''
+        total_rows = db.execute(
+            f'SELECT COUNT(*) AS cnt FROM memory_variables_backup{where}', tuple(params))
+        active_conds = conds + ['(expires_at IS NULL OR expires_at > ?)']
+        active_params = params + [_utcnow_naive().strftime(_BACKUP_TS_FORMAT)]
+        active_rows = db.execute(
+            'SELECT COUNT(*) AS cnt FROM memory_variables_backup WHERE '
+            + ' AND '.join(active_conds), tuple(active_params))
+        result["total"] = total_rows[0]["cnt"] if total_rows else 0
+        result["active"] = active_rows[0]["cnt"] if active_rows else 0
+    except Exception as e:
+        logger.warning(f"[variables_backup] 统计查询失败: {e}")
+        result["error"] = str(e)
+    return result
 
 
 def set_memory_variable(user_id: int,
@@ -101,7 +401,10 @@ def set_memory_variable(user_id: int,
         
         # 记录到变量索引（用于列出所有变量）
         _update_variable_index(user_id, key, session_id, workspace_id)
-        
+
+        # G3：Redis 写成功后 best-effort 镜像到备份表（失败不影响返回值）
+        _backup_upsert(user_id, key, value_str, session_id, ttl, workspace_id)
+
         logger.debug(f"✓ 设置记忆变量：{redis_key} = {value_str[:50]}...")
         return True
         
@@ -189,7 +492,10 @@ def delete_memory_variable(user_id: int,
         
         # 从 Redis 删除
         result = redis_client.delete(redis_key)
-        
+
+        # G3：镜像删除备份表记录（即使 Redis key 已自然过期也清理，避免残留）
+        _backup_delete(user_id, key, session_id, workspace_id)
+
         # 从变量索引中移除
         if result:
             _remove_from_variable_index(user_id, key, session_id, workspace_id)
@@ -330,7 +636,10 @@ def update_variable_ttl(user_id: int,
             redis_client.expire(redis_key, ttl)
         else:
             redis_client.persist(redis_key)
-        
+
+        # G3：镜像 TTL 更新到备份表
+        _backup_update_ttl(user_id, key, ttl, session_id, workspace_id)
+
         logger.info(f"✓ 更新变量 TTL: {redis_key} -> {ttl}")
         return True
     except Exception as e:
@@ -358,7 +667,10 @@ def clear_memory_variables(user_id: int,
         for key in variables.keys():
             if delete_memory_variable(user_id, key, session_id, workspace_id):
                 count += 1
-        
+
+        # G3：镜像清空备份表（包括 Redis 中已过期但备份表仍残留的记录）
+        _backup_clear(user_id, session_id, workspace_id)
+
         logger.info(f"✓ 清空记忆变量：{count} 个")
         return count
         

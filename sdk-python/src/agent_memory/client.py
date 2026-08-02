@@ -91,6 +91,30 @@ class MemoryClient:
     # 配置（W3-F3.2：高级参数仅在此暴露）
     # ================================================================
 
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Optional[dict] = None,
+        params: Optional[dict] = None,
+    ) -> Any:
+        """通用请求透传（稳定公开接口）。
+
+        供需要原始响应体、降级信号或自定义端点的消费方使用：
+        不吞异常、不改写响应体，异常（HTTPError/TransportError 等）原样抛出。
+        http 模式支持任意服务端路径；embedded 模式仅支持 EmbeddedTransport
+        已路由的路径，未路由路径由其抛出对应异常。
+
+        Args:
+            method: HTTP 方法（GET/POST/PUT/DELETE）
+            path: API 路径，必须为以 / 开头的相对路径（相对 /api/v1，
+                如 /memory/hybrid-search）；传入绝对 URL 抛 ValueError
+            json: 请求体 JSON
+            params: URL 查询参数
+        """
+        return self._transport.request(method, path, json=json, params=params)
+
     def configure(self, **kwargs: Any) -> "MemoryClient":
         """覆盖高级参数（recall_top_k / semantic_threshold /
         preference_half_life_days / plan_half_life_days）。

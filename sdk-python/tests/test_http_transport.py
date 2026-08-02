@@ -15,13 +15,20 @@ from agent_memory.exceptions import (
 
 class TestHttpTransportInit:
     def test_creates_client_with_base_url(self):
+        # 无 /api/ 前缀时自动补齐 /api/v1
         t = HttpTransport(base_url="http://localhost:8000")
-        assert t.base_url == "http://localhost:8000"
+        assert t.base_url == "http://localhost:8000/api/v1"
         t.close()
 
     def test_strips_trailing_slash(self):
         t = HttpTransport(base_url="http://localhost:8000/")
-        assert t.base_url == "http://localhost:8000"
+        assert t.base_url == "http://localhost:8000/api/v1"
+        t.close()
+
+    def test_keeps_explicit_api_prefix(self):
+        # 已含 /api/ 前缀时不重复补齐
+        t = HttpTransport(base_url="http://localhost:8000/api/v1")
+        assert t.base_url == "http://localhost:8000/api/v1"
         t.close()
 
     def test_sets_api_key_header(self):
