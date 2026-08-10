@@ -76,6 +76,9 @@ def _status_to_error_code(status_code: int) -> ErrorCode | str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    import asyncio
+
+    from app.core.embedding_warmup import warmup_embedding_models
     from app.services.memory_lifecycle_service import (
         start_lifecycle_scheduler,
         stop_lifecycle_scheduler,
@@ -108,10 +111,18 @@ async def lifespan(app: FastAPI):
     # 将 EventBus 事件分发给匹配的活跃 Webhook（订阅全部事件类型，由 dispatch 内部按 event_types 过滤）
     webhook_subscription_id = await event_bus.subscribe(["*"], dispatch_event_to_webhooks)
     start_retry_worker()
+    # embedding 后台预热（G1）：不阻塞 startup/yield，流量门控交给 /health/ready
+    warmup_task = asyncio.create_task(warmup_embedding_models())
 
     yield
 
     # 优雅关闭（逆序）
+    if not warmup_task.done():
+        warmup_task.cancel()
+        try:
+            await warmup_task
+        except asyncio.CancelledError:
+            pass
     shutdown_tracing()
     stop_retry_worker()
     await event_bus.unsubscribe(webhook_subscription_id)

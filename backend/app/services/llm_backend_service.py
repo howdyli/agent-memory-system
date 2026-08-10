@@ -531,7 +531,7 @@ def get_llm_backend(user_id: int, backend_name: Optional[str] = None) -> Dict[st
         if not rows:
             # 返回默认 DeepSeek 后端（OpenAI 兼容接口）
             default_config = {
-                "api_key": os.environ.get("LLM_API_KEY", "sk-3cb5299e0bbc4456a05da93d1eff617f"),
+                "api_key": os.environ.get("LLM_API_KEY", ""),
                 "model": os.environ.get("LLM_MODEL", "deepseek-v4-flash"),
                 "base_url": os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1"),
                 "temperature": 0.7,

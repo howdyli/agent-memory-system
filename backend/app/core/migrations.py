@@ -17,6 +17,8 @@
 import logging
 from typing import List, Tuple, Any
 
+from app.core import schema_ddl
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,6 +106,9 @@ MIGRATIONS: List[Tuple[int, str, List[str]]] = [
     (9, "add extra_data to memory_fragments", [
         "ALTER TABLE memory_fragments ADD COLUMN extra_data TEXT",
     ]),
+
+    # v10: G3 Variables 备份表（Redis 主存储的 best-effort 数据库镜像）
+    (10, "create memory_variables_backup table", list(schema_ddl.VARIABLES_BACKUP_DDL)),
 ]
 
 

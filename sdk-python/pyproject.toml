@@ -1,6 +1,6 @@
 [project]
 name = "agent-memory-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Agent Memory System SDK — unified client for HTTP and embedded modes"
 authors = [
     {name = "Developer"}

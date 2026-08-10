@@ -15,6 +15,31 @@ PostgresClient 的翻译层，因此无需在此重复声明。
 from typing import List
 
 # ============================================================
+# G3 Variables 备份表（Redis 主存储的 best-effort 数据库镜像）
+# - 由 memory_variable_service 惰性创建，同时纳入 CORE_DDL / 迁移版本
+# - workspace_id / session_id 用哨兵归一（空→0 / 空→''），规避 SQLite
+#   UNIQUE 中 NULL 不互斥导致 upsert 不幂等的问题（归一化在 service 层）
+# ============================================================
+VARIABLES_BACKUP_DDL: List[str] = [
+    '''
+    CREATE TABLE IF NOT EXISTS memory_variables_backup (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        workspace_id INTEGER NOT NULL DEFAULT 0,
+        session_id TEXT NOT NULL DEFAULT '',
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        ttl_seconds INTEGER,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, workspace_id, session_id, key)
+    )
+    ''',
+    'CREATE INDEX IF NOT EXISTS idx_variables_backup_user_ws ON memory_variables_backup(user_id, workspace_id)',
+]
+
+# ============================================================
 # 核心表与索引（按依赖顺序）——SQLite 方言，规范源
 # ============================================================
 CORE_DDL: List[str] = [
@@ -300,6 +325,8 @@ CORE_DDL: List[str] = [
     )
     ''',
     'CREATE INDEX IF NOT EXISTS idx_extraction_templates_user ON extraction_prompt_templates(user_id, is_active)',
+    # ---- G3 Variables 备份（定义见上方 VARIABLES_BACKUP_DDL）----
+    *VARIABLES_BACKUP_DDL,
 ]
 
 # ============================================================

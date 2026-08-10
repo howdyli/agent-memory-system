@@ -3,9 +3,6 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from agent_memory.transport.base import Transport
-from agent_memory.transport.http import HttpTransport
-
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +25,11 @@ class _AsyncHttpTransport:
     ):
         import httpx
 
+        self.base_url = base_url.rstrip("/")
+        # 自动补齐 /api/v1 前缀，避免用户忘记配置导致 404
+        if "/api/" not in self.base_url:
+            self.base_url = self.base_url + "/api/v1"
+
         headers: Dict[str, str] = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -36,10 +38,11 @@ class _AsyncHttpTransport:
         if workspace_id:
             headers["X-Workspace-Id"] = str(workspace_id)
 
+        # 不使用 httpx 的 base_url（绝对路径会丢失前缀），改为手动拼接
         self._client = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"),
             headers=headers,
             timeout=timeout,
+            follow_redirects=True,  # 防御尾斜杠 307/308（httpx 会保留方法与 body 重放）
         )
 
     async def request(
@@ -49,8 +52,11 @@ class _AsyncHttpTransport:
         json: Optional[dict] = None,
         params: Optional[dict] = None,
     ) -> Any:
+        # 防御：base_url 手动拼接后，绝对 URL 会拼出畸形地址静默打错服务
+        if path.startswith(("http://", "https://")):
+            raise ValueError("request() 仅接受相对路径（如 /memory/...），请勿传入绝对 URL")
         response = await self._client.request(
-            method=method.upper(), url=path, json=json, params=params,
+            method=method.upper(), url=self.base_url + path, json=json, params=params,
         )
         if response.status_code < 400:
             if response.status_code == 204:
@@ -92,6 +98,29 @@ class AsyncMemoryClient:
             workspace_id=workspace_id,
             timeout=timeout,
         )
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Optional[dict] = None,
+        params: Optional[dict] = None,
+    ) -> Any:
+        """通用请求透传（稳定公开接口）。
+
+        供需要原始响应体、降级信号或自定义端点的消费方使用：
+        不吞异常、不改写响应体，<400 返回已解析 JSON（非 JSON 返回文本），
+        异常（HTTPError/TransportError 等）原样抛出。
+
+        Args:
+            method: HTTP 方法（GET/POST/PUT/DELETE）
+            path: API 路径，必须为以 / 开头的相对路径（相对 /api/v1，
+                如 /memory/hybrid-search）；传入绝对 URL 抛 ValueError
+            json: 请求体 JSON
+            params: URL 查询参数
+        """
+        return await self._transport.request(method, path, json=json, params=params)
 
     async def remember(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         result = await self._transport.request("POST", "/memory/variables", json={
@@ -241,6 +270,115 @@ class AsyncMemoryClient:
         if isinstance(result, dict):
             return result.get("success", True)
         return bool(result)
+
+    # ================================================================
+    # Graph API（知识图谱操作）
+    # ================================================================
+
+    async def graph_query(self, entity: str, *, depth: int = 2) -> List[Dict[str, Any]]:
+        """查询实体关联图谱。
+
+        调用 GET /memory/graph/query?q={entity}
+        返回邻居节点列表，失败返回空列表。
+        """
+        try:
+            result = await self._transport.request(
+                "GET", "/memory/graph/query", params={"q": entity.strip()},
+            )
+        except Exception as e:
+            logger.warning("graph_query 失败: %s", e)
+            return []
+        if isinstance(result, dict):
+            return result.get("neighbors", result.get("results", []))
+        return result if isinstance(result, list) else []
+
+    async def graph_ingest(self, text: str, *, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """从文本中抽取实体和关系，写入图谱。
+
+        调用 POST /memory/graph/extract
+        返回 {"entities_extracted": N, "relations_created": N}。
+        """
+        try:
+            result = await self._transport.request(
+                "POST", "/memory/graph/extract", json={"text": text},
+            )
+        except Exception as e:
+            logger.warning("graph_ingest 失败: %s", e)
+            return {"entities_extracted": 0, "relations_created": 0}
+        return result if isinstance(result, dict) else {"entities_extracted": 0, "relations_created": 0}
+
+    # ================================================================
+    # Lifecycle API（记忆生命周期管理）
+    # ================================================================
+
+    async def run_lifecycle_maintenance(self) -> Dict[str, Any]:
+        """调用生命周期维护 API，执行记忆清理/衰减/归档。
+
+        调用 POST /memory/lifecycle/run-cleanup
+        返回含 {marked_cold, soft_deleted, decayed} 的统计字典。
+        """
+        try:
+            result = await self._transport.request(
+                "POST", "/memory/lifecycle/run-cleanup",
+            )
+        except Exception as e:
+            logger.warning("run_lifecycle_maintenance 失败: %s", e)
+            return {"marked_cold": 0, "soft_deleted": 0, "decayed": 0}
+        return result if isinstance(result, dict) else {}
+
+    async def detect_memory_conflicts(
+        self,
+        content: str = "*",
+        threshold: float = 0.85,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """调用冲突检测 API，查找重复/矛盾记忆。
+
+        调用 POST /memory/lifecycle/duplicates/find
+        返回重复记忆对列表。
+        """
+        try:
+            result = await self._transport.request(
+                "POST", "/memory/lifecycle/duplicates/find",
+                json={"content": content, "threshold": threshold, "limit": limit},
+            )
+        except Exception as e:
+            logger.warning("detect_memory_conflicts 失败: %s", e)
+            return []
+        if isinstance(result, dict):
+            return result.get("duplicates", result.get("conflicts", []))
+        return result if isinstance(result, list) else []
+
+    # ================================================================
+    # Extraction API（LLM 驱动的结构化记忆抽取）
+    # ================================================================
+
+    async def extract_and_save(
+        self,
+        session_id: str,
+        messages: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """从对话中抽取结构化记忆并保存。
+
+        调用 POST /memory/extraction/batch-extract
+        返回 {"variables": [...], "facts": [...], "preferences": [...], "plans": [...]}。
+        """
+        try:
+            result = await self._transport.request(
+                "POST", "/memory/extraction/batch-extract",
+                json={"session_id": session_id, "conversation_history": messages},
+            )
+        except Exception as e:
+            logger.warning("extract_and_save 失败: %s", e)
+            return {"variables": [], "facts": [], "preferences": [], "plans": []}
+        return result if isinstance(result, dict) else {}
+
+    # 别名，与 extract_and_save 等价
+    batch_extract = extract_and_save
+
+    # ================================================================
+    # 生命周期
+    # ================================================================
 
     async def close(self) -> None:
         await self._transport.close()

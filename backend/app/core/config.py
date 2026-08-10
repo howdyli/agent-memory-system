@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"  # 仅 provider=local 生效
     EMBEDDING_DEVICE: str = "cpu"              # cpu | cuda | mps
     EMBEDDING_BATCH_SIZE: int = 32             # 文档嵌入批处理大小
+    EMBEDDING_WARMUP_ENABLED: bool = True      # 启动时后台预热 embedding 模型（G1 冷启动优化）
+    EMBEDDING_WARMUP_TIMEOUT: float = 30.0     # 单次预热尝试超时（秒）
+    EMBEDDING_WARMUP_RETRIES: int = 2          # 预热失败重试次数（指数退避）
+    READINESS_WAIT_FOR_WARMUP: bool = True     # /health/ready 是否等待预热完成（failed 不阻断）
     MILVUS_URI: str = "localhost:19530"
     QDRANT_URL: str = "http://localhost:6333"
 
@@ -81,6 +85,10 @@ class Settings(BaseSettings):
     # ===== 缓存 =====
     HYBRID_SEARCH_CACHE_TTL: int = 300         # 混合搜索结果缓存 TTL（秒）
     STATS_CACHE_TTL: int = 60                  # 统计接口缓存 TTL（秒）
+
+    # ===== Variables 备份（G3：Redis 主存 + 数据库 best-effort 镜像）=====
+    # False 时双写与恢复全部短路；备份表过期行需周期调用 backup-purge 端点或依赖 restore 顺带清理
+    VARIABLES_DB_BACKUP_ENABLED: bool = True
 
     # ===== 生命周期 =====
     COLD_MEMORY_THRESHOLD_DAYS: int = 30       # 冷记忆标记阈值（天）

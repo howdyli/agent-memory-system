@@ -33,6 +33,12 @@ class AutoRecallRequest(BaseModel):
     top_k: Optional[int] = None
 
 
+class LayeredRecallRequest(BaseModel):
+    query: str
+    token_budget: Optional[int] = 4000
+    layers: Optional[List[str]] = None
+
+
 class GenerateSummaryRequest(BaseModel):
     messages: List[Dict[str, str]]
 
@@ -79,6 +85,67 @@ async def auto_recall_api(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
+        )
+
+
+@router.post("/auto")
+async def auto_recall_layered_api(
+    request: LayeredRecallRequest,
+    principal: Principal = Depends(get_current_principal)
+):
+    """三层分层召回（Profile → 语义 → 实体展开）。
+
+    返回格式：{profile, semantic, entity_expansion, total_tokens}
+    """
+    try:
+        result = auto_recall(
+            principal.user_id, request.query,
+            workspace_id=principal.workspace_id,
+            top_k=max(request.token_budget // 800, 3) if request.token_budget else 5,
+        )
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Layered recall failed"),
+            )
+
+        # 将 auto_recall 结果映射到三层结构
+        context = result.get("context", "")
+        variables = result.get("variables", {})
+        fragments = result.get("fragments", [])
+
+        # Level 1: profile — KV 变量 + 高重要性片段
+        profile_parts = []
+        if variables:
+            for k, v in variables.items():
+                profile_parts.append(f"{k}: {v}")
+        high_imp = [f for f in fragments if f.get("importance_score", 0) >= 0.6]
+        for f in high_imp[:5]:
+            profile_parts.append(f.get("content", "")[:200])
+        profile = "\n".join(profile_parts)
+
+        # Level 2: semantic — 全部语义片段
+        semantic_parts = [f.get("content", "") for f in fragments[:10]]
+        semantic = "\n".join(semantic_parts)
+
+        # Level 3: entity_expansion — 关联实体（从 context 中提取）
+        entity_expansion = context[:1000] if context else ""
+
+        total_tokens = (len(profile) + len(semantic) + len(entity_expansion)) // 2
+
+        return {
+            "profile": profile,
+            "semantic": semantic,
+            "entity_expansion": entity_expansion,
+            "total_tokens": total_tokens,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("✗ 分层召回失败: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
         )
 
 

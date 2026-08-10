@@ -1,6 +1,6 @@
 """Agent Memory SDK — unified client for HTTP and embedded modes."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from agent_memory.client import MemoryClient
 from agent_memory.async_client import AsyncMemoryClient

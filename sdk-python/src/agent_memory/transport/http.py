@@ -31,6 +31,9 @@ class HttpTransport(Transport):
         timeout: float = 30.0,
     ):
         self.base_url = base_url.rstrip("/")
+        # 自动补齐 /api/v1 前缀，避免用户忘记配置导致 404
+        if "/api/" not in self.base_url:
+            self.base_url = self.base_url + "/api/v1"
         self.api_key = api_key
         self.token = token
         self.workspace_id = workspace_id
@@ -43,10 +46,11 @@ class HttpTransport(Transport):
         if workspace_id:
             headers["X-Workspace-Id"] = str(workspace_id)
 
+        # 不使用 httpx 的 base_url（绝对路径会丢失前缀），改为手动拼接
         self._client = httpx.Client(
-            base_url=self.base_url,
             headers=headers,
             timeout=timeout,
+            follow_redirects=True,  # 防御尾斜杠 307/308（httpx 会保留方法与 body 重放）
         )
 
     def request(
@@ -56,10 +60,13 @@ class HttpTransport(Transport):
         json: Optional[dict] = None,
         params: Optional[dict] = None,
     ) -> Any:
+        # 防御：base_url 手动拼接后，绝对 URL 会拼出畸形地址静默打错服务
+        if path.startswith(("http://", "https://")):
+            raise ValueError("request() 仅接受相对路径（如 /memory/...），请勿传入绝对 URL")
         try:
             response = self._client.request(
                 method=method.upper(),
-                url=path,
+                url=self.base_url + path,
                 json=json,
                 params=params,
             )
@@ -74,10 +81,13 @@ class HttpTransport(Transport):
         path: str,
         json: Optional[dict] = None,
     ) -> Iterator[str]:
+        # 防御：同 request()，拒绝绝对 URL
+        if path.startswith(("http://", "https://")):
+            raise ValueError("request_stream() 仅接受相对路径（如 /memory/...），请勿传入绝对 URL")
         try:
             with self._client.stream(
                 method=method.upper(),
-                url=path,
+                url=self.base_url + path,
                 json=json,
             ) as response:
                 if response.status_code >= 400:
