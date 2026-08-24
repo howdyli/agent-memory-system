@@ -27,7 +27,7 @@ from app.core.auth import (
 from app.core.db_client import get_db_client
 from app.core.errors import AppException, AuthError, ConflictError, NotFoundError, ValidationError
 from app.core.rbac import Perm, require_permission
-from app.services import api_key_service
+from app.services import api_key_service, workspace_service
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,29 @@ async def register(user_data: UserRegister):
     
     # 创建 Token
     access_token = create_access_token(user_id, user_data.username)
-    
+
+    # 自动创建个人默认 workspace：避免新用户访问 /workspace/settings 等强依赖
+    # active_workspace_id 的接口时返回 400（"No active workspace"）。
+    # kind=personal 与团队空间隔离；slug=personal-{username} 保证唯一且语义清晰。
+    # 失败时不影响主注册流程（workspace 可后续手动创建）。
+    try:
+        result = workspace_service.create_workspace(
+            name=f"{user_data.username} 的个人空间",
+            slug=f"personal-{user_data.username}",
+            owner_user_id=user_id,
+            kind="personal",
+        )
+        ws_id = result["workspace"]["id"]
+        db.execute(
+            "UPDATE users SET default_workspace_id = ? WHERE id = ?",
+            (ws_id, user_id),
+        )
+        logger.info(f"✓ 为新用户 {user_data.username} 创建个人 workspace: id={ws_id}")
+    except Exception as ws_err:
+        logger.warning(
+            f"⚠ 为新用户 {user_data.username} 自动创建 personal workspace 失败（不影响注册）: {ws_err}"
+        )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
