@@ -40,6 +40,7 @@ import json
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -120,7 +121,10 @@ def build_mcp_server() -> "FastMCP":
     if not _mcp_available:
         raise RuntimeError("mcp SDK 未安装，无法构造 MCP Server")
 
-    mcp = FastMCP("agent-memory-system")
+    # streamable_http_path="/"：被 mount 到宿主应用时，端点即挂载路径本身（避免 /mcp/mcp 双重前缀）
+    # stateless_http=True：每请求独立会话，不依赖 session ID；服务重启/重载后客户端无需重新握手，
+    # 避免出现 "Connection closed / Session not found" 类故障
+    mcp = FastMCP("agent-memory-system", streamable_http_path="/", stateless_http=True)
 
     # ============================================================
     # 记忆管理工具
@@ -371,6 +375,21 @@ def mount_to_app(app, path: str = "/mcp") -> bool:
         if hasattr(mcp, "streamable_http_app"):
             asgi_app = mcp.streamable_http_app()
             _mounted_transport = "streamable_http"
+
+            # Starlette 对 mount() 挂载的子应用不会触发 lifespan 事件，
+            # 导致 StreamableHTTPSessionManager 的 task group 永不启动，
+            # 所有请求抛 "Task group is not initialized" （客户端表现为连接被关闭）。
+            # 解法：把 session manager 的运行周期并入宿主应用的 lifespan。
+            session_manager = mcp.session_manager
+            original_lifespan = app.router.lifespan_context
+
+            @asynccontextmanager
+            async def _lifespan_with_mcp(app_):
+                async with original_lifespan(app_):
+                    async with session_manager.run():
+                        yield
+
+            app.router.lifespan_context = _lifespan_with_mcp
         elif hasattr(mcp, "sse_app"):
             asgi_app = mcp.sse_app()
             _mounted_transport = "sse"
