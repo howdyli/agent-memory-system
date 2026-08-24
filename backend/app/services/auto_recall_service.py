@@ -639,6 +639,15 @@ def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None, to
 
         top_memories = result.memories
 
+        # KV 变量（best-effort）：供分层召回 API 组装 profile 层，失败不影响主流程
+        variables: Dict[str, Any] = {}
+        try:
+            variables = list_memory_variables(
+                user_id=user_id, workspace_id=workspace_id
+            ) or {}
+        except Exception as e:
+            logger.warning(f"召回时获取记忆变量失败（已忽略）: {e}")
+
         # 自定义格式（保持兼容）
         if context_format == "narrative":
             context = " ".join(m.get("content", "") for m in top_memories)
@@ -662,7 +671,8 @@ def auto_recall(user_id: int, query: str, workspace_id: Optional[int] = None, to
             "context": context,
             "memories": top_memories,
             "memory_count": len(top_memories),
-            "query": query
+            "query": query,
+            "variables": variables
         }
         
     except Exception as e:

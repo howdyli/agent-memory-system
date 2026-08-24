@@ -69,6 +69,8 @@ class RenderPromptRequest(BaseModel):
 
 
 class CreateFragmentRequest(BaseModel):
+    model_config = {"extra": "forbid"}  # 禁止未知字段，防止 importance 等传错名静默丢失
+
     fragment_type: str  # info, preference, plan
     content: str
     ttl: Optional[int] = None  # 秒
@@ -79,6 +81,8 @@ class CreateFragmentRequest(BaseModel):
 
 
 class UpdateFragmentRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     content: Optional[str] = None
     ttl: Optional[int] = None
     importance_score: Optional[float] = None

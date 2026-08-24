@@ -37,6 +37,8 @@ router = APIRouter(tags=["memory-variables"])
 
 # 请求模型
 class SetVariableRequest(BaseModel):
+    model_config = {"extra": "forbid"}  # 禁止未知字段，避免参数静默丢失
+
     key: str
     value: Any
     session_id: Optional[str] = None

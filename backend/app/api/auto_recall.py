@@ -29,11 +29,15 @@ router = APIRouter(tags=["auto-recall"])
 
 
 class AutoRecallRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     query: str
     top_k: Optional[int] = None
 
 
 class LayeredRecallRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     query: str
     token_budget: Optional[int] = 4000
     layers: Optional[List[str]] = None

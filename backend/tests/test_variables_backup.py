@@ -463,6 +463,11 @@ def test_backup_purge_endpoint(client, auth_headers):
     past = (mvs._utcnow_naive() - timedelta(seconds=60)).strftime(mvs._BACKUP_TS_FORMAT)
     future = (mvs._utcnow_naive() + timedelta(seconds=3600)).strftime(mvs._BACKUP_TS_FORMAT)
 
+    # 先清理历史残留行，保证测试可重复运行（上次失败可能遗留 bk_purge% 行）
+    _db = get_db_client()
+    mvs._ensure_backup_table(_db)
+    _db.execute("DELETE FROM memory_variables_backup WHERE key LIKE 'bk_purge%'")
+
     # 先通过 API 创建一条记录，从备份表反查真实 user_id
     resp = client.post("/api/v1/memory/variables", headers=auth_headers, json={
         "key": "bk_purge_probe", "value": "probe", "ttl": 3600,
@@ -472,19 +477,20 @@ def test_backup_purge_endpoint(client, auth_headers):
     db = get_db_client()
     mvs._ensure_backup_table(db)
     probe_row = db.execute(
-        "SELECT user_id FROM memory_variables_backup WHERE key = ?",
+        "SELECT user_id, workspace_id FROM memory_variables_backup WHERE key = ?",
         ("bk_purge_probe",),
     )
     assert probe_row, "probe 行必须存在"
     uid = dict(probe_row[0])["user_id"]
+    probe_ws = dict(probe_row[0])["workspace_id"]
 
-    # 直接插入 2 条过期 + 1 条未过期（用同一 user_id）
+    # 直接插入 2 条过期 + 1 条未过期（用同一 user_id/workspace_id，保证 purge 过滤命中）
     for key, exp in [("bk_purge_e1", past), ("bk_purge_e2", past), ("bk_purge_ok", future)]:
         db.execute(
             "INSERT INTO memory_variables_backup "
             "(user_id, workspace_id, session_id, key, value, ttl_seconds, expires_at) "
-            "VALUES (?, 0, '', ?, 'v', 60, ?)",
-            (uid, key, exp),
+            "VALUES (?, ?, '', ?, 'v', 60, ?)",
+            (uid, probe_ws, key, exp),
         )
 
     resp = client.post("/api/v1/memory/variables/backup-purge", headers=auth_headers)
