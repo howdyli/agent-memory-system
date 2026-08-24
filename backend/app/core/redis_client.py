@@ -27,13 +27,19 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _is_prod_env() -> bool:
+    """判断当前是否为生产/预发环境（AMS_ENV / ENVIRONMENT）。"""
+    env = (os.environ.get("AMS_ENV") or os.environ.get("ENVIRONMENT") or "").strip().lower()
+    return env in ("production", "prod", "staging")
+
+
 class RedisClient:
     """Redis 客户端封装（支持真实 Redis 和 fakeredis）"""
     
     _instance = None
     _connection = None
     _is_fake = False
-    
+
     def __new__(cls):
         """单例模式"""
         if cls._instance is None:
@@ -79,15 +85,28 @@ class RedisClient:
             logger.warning(f"✗ 真实 Redis 连接失败: {e}")
             return False
 
-    def _connect_fakeredis(self):
-        """降级到 fakeredis（内存模拟）"""
+    def _connect_fakeredis(self, fallback: bool = False):
+        """降级到 fakeredis（内存模拟）。
+
+        生产环境的降级意味着多实例缓存不一致、进程重启后 KV 变量丢失
+        （需依赖备份表恢复），必须以 ERROR 显著暴露；dev/test 视为正常开发态。
+        """
         if not FAKEREDIS_AVAILABLE:
             logger.error("✗ fakeredis 未安装，无法使用 Redis")
             raise RuntimeError("No Redis backend available (real_redis and fakeredis are both unavailable)")
         self._connection = fakeredis.FakeStrictRedis(version=(7, 2))
         self._is_fake = True
         self._connection.ping()
-        logger.info("✓ 使用 FakeRedis（内存模拟模式）")
+        if fallback and _is_prod_env():
+            logger.error(
+                "⚠ 生产环境降级到 FakeRedis！多实例部署将缓存不一致，"
+                "进程重启后 KV 变量数据丢失（需依赖备份表 restore-backup 恢复）。"
+                "请配置 REDIS_URL 并确保真实 Redis 可达。"
+            )
+        elif fallback:
+            logger.warning("✓ 降级使用 FakeRedis（内存模拟模式，dev/test 环境；注意：重启后数据丢失）")
+        else:
+            logger.info("✓ 使用 FakeRedis（内存模拟模式）")
 
     def _initialize_connection(self):
         """初始化 Redis 连接"""
@@ -97,7 +116,7 @@ class RedisClient:
             config = self._parse_redis_url(redis_url)
             if not self._connect_real_redis(config):
                 logger.warning("REDIS_URL 配置了真实 Redis 但连接失败，降级到 fakeredis")
-                self._connect_fakeredis()
+                self._connect_fakeredis(fallback=True)
         elif redis_url and redis_url.startswith("fakeredis://"):
             self._connect_fakeredis()
         else:
@@ -112,7 +131,7 @@ class RedisClient:
             }
             if self._connect_real_redis(default_config):
                 return
-            self._connect_fakeredis()
+            self._connect_fakeredis(fallback=True)
     
     def get_connection(self):
         """获取 Redis 连接"""

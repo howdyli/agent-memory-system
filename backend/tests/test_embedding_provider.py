@@ -144,7 +144,23 @@ def test_default_mode_collection_name_unchanged(monkeypatch):
 @pytest.mark.slow
 def test_local_embedding_real_model(monkeypatch):
     pytest.importorskip("sentence_transformers")
-    _set_provider(monkeypatch, "local", "BAAI/bge-small-zh-v1.5")
+    model_name = "BAAI/bge-small-zh-v1.5"
+    # 无本地缓存时自动跳过（避免离线/受限网络环境强制下载导致失败）
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        if try_to_load_from_cache(model_name, "config.json") in (None, False):
+            pytest.skip(f"model {model_name} not cached locally")
+    except ImportError:
+        pass
+    # 强制离线模式：直接用本地缓存，跳过 HF Hub 在线 revision 校验
+    # （代理/fake-ip 环境下在线校验会被阻断导致 client closed 错误）
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    try:
+        import huggingface_hub.constants as _hf_const
+        monkeypatch.setattr(_hf_const, "HF_HUB_OFFLINE", True, raising=False)
+    except (ImportError, AttributeError):
+        pass
+    _set_provider(monkeypatch, "local", model_name)
     provider = get_embedding_provider()
 
     docs = provider.embed_documents(["我喜欢喝美式咖啡", "项目使用 FastAPI 框架"])
